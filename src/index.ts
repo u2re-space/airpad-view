@@ -41,10 +41,13 @@ export const CwAirpadView = createViewConstructor(TAG, (Base: typeof ViewBase) =
     private _orientationLocked = false;
 
     lifecycle: ViewLifecycle = {
-        onMount: () => this.initAirpad(),
+        onMount: () => {
+            this._sheet ??= loadAsAdopted(style) as CSSStyleSheet;
+            void this.initAirpad();
+        },
         onUnmount: () => this.cleanup(),
         onShow: () => {
-            this._sheet = loadAsAdopted(style) as CSSStyleSheet;
+            this._sheet ??= loadAsAdopted(style) as CSSStyleSheet;
             void this.lockOrientationForAirpad();
             // If the shell re-rendered a detached root without re-running onMount, finish init here.
             if (!this.initialized) {
@@ -54,7 +57,12 @@ export const CwAirpadView = createViewConstructor(TAG, (Base: typeof ViewBase) =
         onHide: () => {
             setRemoteKeyboardEnabled(false);
             this.unlockOrientationForAirpad();
-            removeAdopted(this._sheet);
+            try {
+                if (this._sheet) removeAdopted(this._sheet);
+            } catch {
+                /* ignore */
+            }
+            this._sheet = null;
         },
     };
 
@@ -80,7 +88,6 @@ export const CwAirpadView = createViewConstructor(TAG, (Base: typeof ViewBase) =
             this.cleanup();
         }
 
-        this._sheet = loadAsAdopted(style) as CSSStyleSheet;
         ensureCwAirpadAppDefined();
 
         this.element = H`

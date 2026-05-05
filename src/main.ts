@@ -6,8 +6,6 @@
  * teardown path required for shell remounts.
  */
 
-// @ts-ignore
-import stylesheet from "./main.scss?inline";
 import { initServiceWorker } from "core/pwa/sw-handling";
 
 //
@@ -22,7 +20,6 @@ import { teardownKeyboardDismissListeners } from "./input/keyboard/handlers";
 import { initClipboardToolbar } from "./ui/clipboard-toolbar";
 import { showConfigUI, teardownAirpadConfigOverlay } from "./ui/config-ui";
 import { resetClipboardToolbarState } from "./ui/clipboard-toolbar";
-import { loadAsAdopted } from "fest/dom";
 import { H } from "fest/lure";
 import { waitForDomPaint } from "shared/policies/event-handling-policy";
 import { resetMotionAccum } from "./config/motion-state";
@@ -78,7 +75,7 @@ export default async function mountAirpad(mountElement: HTMLElement): Promise<vo
     const initSignal = initController.signal;
     const currentInitToken = airpadInitToken;
 
-    loadAsAdopted(stylesheet);
+    /* Stylesheet: `airpad.scss` imports `main.scss` and is adopted by `cw-airpad-view` before mount. */
     ensureCwAirpadActionRailDefined();
     ensureCwAirpadSidePanelsDefined();
 

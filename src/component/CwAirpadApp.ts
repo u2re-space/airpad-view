@@ -7,14 +7,19 @@ class CwAirpadAppElement extends HTMLElement {
     private controller = new AirpadController();
     private started = false;
     private contentHost: HTMLElement | null = null;
+    /** WHY: Airpad styles read `data-theme` on `.view-cwsp`; document-level `:root …` selectors can miss nested/shadow hosts. */
+    private themeObserver: MutationObserver | null = null;
 
     connectedCallback(): void {
         if (!this.isConnected) return;
         this.renderShell();
+        this.attachDocumentThemeObserver();
         void this.start();
     }
 
     disconnectedCallback(): void {
+        this.themeObserver?.disconnect();
+        this.themeObserver = null;
         this.dispose();
     }
 
@@ -46,7 +51,10 @@ class CwAirpadAppElement extends HTMLElement {
     }
 
     private renderShell(): void {
-        if (this.contentHost?.isConnected && this.querySelector(".view-cwsp")) return;
+        if (this.contentHost?.isConnected && this.querySelector(".view-cwsp")) {
+            this.syncViewSurfaceThemeFromDocument();
+            return;
+        }
         this.replaceChildren(
             H`
             <div class="view-cwsp">
@@ -60,6 +68,31 @@ class CwAirpadAppElement extends HTMLElement {
         ` as HTMLElement
         );
         this.contentHost = this.querySelector("[data-cwsp-content]") as HTMLElement | null;
+        this.syncViewSurfaceThemeFromDocument();
+    }
+
+    private syncViewSurfaceThemeFromDocument(): void {
+        try {
+            const view = this.querySelector(".view-cwsp") as HTMLElement | null;
+            if (!view) return;
+            const t = document.documentElement.getAttribute("data-theme");
+            if (t === "light" || t === "dark") view.setAttribute("data-theme", t);
+            else view.removeAttribute("data-theme");
+        } catch {
+            /* ignore */
+        }
+    }
+
+    private attachDocumentThemeObserver(): void {
+        if (typeof MutationObserver === "undefined") return;
+        this.themeObserver?.disconnect();
+        this.syncViewSurfaceThemeFromDocument();
+        this.themeObserver = new MutationObserver(() => this.syncViewSurfaceThemeFromDocument());
+        try {
+            this.themeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+        } catch {
+            this.themeObserver = null;
+        }
     }
 
     private renderError(error: unknown): void {
