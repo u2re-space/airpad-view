@@ -91,7 +91,7 @@ export const CwAirpadView = createViewConstructor(TAG, (Base: typeof ViewBase) =
         ensureCwAirpadAppDefined();
 
         this.element = H`
-            <cw-airpad-app data-airpad-app></cw-airpad-app>
+            <cw-airpad-app data-airpad-app data-view="airpad"></cw-airpad-app>
         ` as HTMLElement;
         this.appElement = this.element as unknown as CwAirpadApp;
 
