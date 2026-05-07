@@ -101,6 +101,52 @@ const joinUniqueUrls = (...values: Array<string | undefined>): string => {
 };
 
 /** If AirPad storage says `https://<this-host>:8443` but the app tab is `https://<this-host>/` (443), use tab origin. */
+
+/**
+ * Detect public (non-loopback) tab origins so we can ignore dev-only loopback remote URLs in stored settings.
+ */
+const isBrowserPublicOrigin = (): boolean => {
+    if (typeof globalThis.location === "undefined") return false;
+    const h = String(globalThis.location.hostname || "").toLowerCase();
+    if (!h || h === "localhost" || h === "127.0.0.1" || h === "[::1]") return false;
+    return true;
+};
+
+const urlHostIsLoopback = (urlStr: string): boolean => {
+    const trimmed = toTrimmedString(urlStr);
+    if (!trimmed) return false;
+    try {
+        const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+        const u = new URL(raw.endsWith("/") ? raw : `${raw.replace(/\/+$/, "")}/`);
+        const h = u.hostname.toLowerCase();
+        return h === "localhost" || h === "127.0.0.1" || h === "[::1]";
+    } catch {
+        return false;
+    }
+};
+
+/**
+ * When the tab is on a real deployed host but every configured remote URL is loopback-only,
+ * use {@link globalThis.location.origin} at read-time instead so websocket probes reach this deployment.
+ * Does not rewrite IndexedDB / AirPad localStorage.
+ */
+const sanitizeLoopbackRemoteOnPublicOrigin = (value: string): string => {
+    const trimmed = value.trim();
+    if (!trimmed || !isBrowserPublicOrigin()) return trimmed;
+    const parts = trimmed
+        .split(",")
+        .map((p) => p.trim())
+        .filter(Boolean);
+    if (!parts.length) return trimmed;
+    const allLoopback = parts.every(urlHostIsLoopback);
+    if (!allLoopback) return trimmed;
+    try {
+        return normalizeOriginUrl(globalThis.location.origin);
+    } catch {
+        return trimmed;
+    }
+};
+
 const rewriteEndpointToMatchHttpsTab = (originLike: string): string => {
     const trimmed = toTrimmedString(originLike);
     if (!trimmed || typeof globalThis.location === "undefined" || !globalThis.location.hostname) return trimmed;
@@ -559,7 +605,7 @@ export function isShellNativeContactsEnabled(): boolean {
 
 // Configuration getters and setters
 export function getRemoteHost(): string {
-    return remoteHost;
+    return sanitizeLoopbackRemoteOnPublicOrigin(remoteHost);
 }
 
 export function getAirPadEndpointUrl(): string {
