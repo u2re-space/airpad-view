@@ -2,8 +2,8 @@
 // Конфигурация
 // =========================
 //
-// @see runtime/cwsp/shared/airpad-cwsp-client-parity.ts — persisted keys vs CWSAndroid `ApplicationSettings` (`cwsp.*`).
-// @see runtime/cwsp/endpoint/SPECIFICATION-v2.md — coordinator / AirPad wire.
+// @see ../../../../projects/subsystem/runtime/airpad-cwsp-client-parity.ts — AirPad localStorage vs CWSAndroid ApplicationSettings (`cwsp.*`).
+// @see runtime/cwsp/endpoint/SPECIFICATION-v2.md — coordinator wire (docs only; not a code dependency).
 
 import type { AppSettings } from "com/config/SettingsTypes";
 import {
@@ -19,14 +19,14 @@ import {
     AIRPAD_REMOTE_CONFIG_STORAGE_KEY,
     CWSP_REMOTE_CONNECTION_JSON_VERSION,
     type CwspRemoteConnectionV1
-} from "@cwsp/shared/airpad-cwsp-client-parity";
+} from "../../../../projects/subsystem/runtime/airpad-cwsp-client-parity";
 
 export type { WireTargetEntry };
 
 type RemoteProtocol = 'auto' | 'http' | 'https';
 export type AirpadTransportMode = "plaintext" | "secure";
 
-/** Persisted `localStorage` row — shared contract with runtime/cwsp `CwspRemoteConnectionV1`. */
+/** Persisted `localStorage` row — {@link CwspRemoteConnectionV1} (subsystem runtime parity module). */
 interface StoredRemoteConfig extends CwspRemoteConnectionV1 {
 }
 interface MigratedRemoteConfig extends StoredRemoteConfig {
