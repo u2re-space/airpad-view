@@ -83,7 +83,12 @@
             "fonts/*": ["../shared/assets/fonts/*"],
             "shells/immersive/index": ["../../shells/immersive-shell/src/index.ts"],
             "shells/content/index": ["../../shells/content-shell/src/index.ts"],
-            "shells/minimal/preview": ["../../shells/minimal-shell/src/preview.ts"]
+            "@cwsp": [
+                "../../../runtime/cwsp"
+            ],
+            "@cwsp/*": [
+                "../../../runtime/cwsp/*"
+            ]
         },
         "target": "ESNext",
         "module": "ESNext",

@@ -1,6 +1,9 @@
 // =========================
 // Конфигурация
 // =========================
+//
+// @see runtime/cwsp/shared/airpad-cwsp-client-parity.ts — persisted keys vs CWSAndroid `ApplicationSettings` (`cwsp.*`).
+// @see runtime/cwsp/endpoint/SPECIFICATION-v2.md — coordinator / AirPad wire.
 
 import type { AppSettings } from "com/config/SettingsTypes";
 import {
@@ -12,33 +15,19 @@ import {
     resolveWireArchetype,
     resolveWireConnectionType,
 } from "cwsp-shared/cws-client-wire-defaults";
-import { invalidateAirpadTransportCredentials } from "../credential-cache-bridge";
+import {
+    AIRPAD_REMOTE_CONFIG_STORAGE_KEY,
+    CWSP_REMOTE_CONNECTION_JSON_VERSION,
+    type CwspRemoteConnectionV1
+} from "@cwsp/shared/airpad-cwsp-client-parity";
 
 export type { WireTargetEntry };
 
 type RemoteProtocol = 'auto' | 'http' | 'https';
 export type AirpadTransportMode = "plaintext" | "secure";
-const STORAGE_KEY = 'airpad.remote.connection.v1';
 
-interface StoredRemoteConfig {
-    /** Raw quick-connect field text as entered in the AirPad popup. */
-    quickConnectValue?: string;
-    /** Routed relay / endpoint origin, e.g. https://192.168.0.200:8443/ */
-    endpointUrl?: string;
-    /** Direct AirPad / endpoint origin, e.g. https://192.168.0.110:8443/ */
-    directUrl?: string;
-    /** Logical destination peer id, e.g. L-192.168.0.110 */
-    destinationId?: string;
-    /** Legacy combined transport host field retained for migration only. */
-    host?: string;
-    /** Canonical persisted control / access token. */
-    accessToken?: string;
-    /** @deprecated Legacy key; merged into accessToken on load. */
-    authToken?: string;
-    routeTarget?: string;
-    clientId?: string;
-    /** Stable per-browser tab/install; separates concurrent devices sharing the same clientId/token. */
-    peerInstanceId?: string;
+/** Persisted `localStorage` row — shared contract with runtime/cwsp `CwspRemoteConnectionV1`. */
+interface StoredRemoteConfig extends CwspRemoteConnectionV1 {
 }
 interface MigratedRemoteConfig extends StoredRemoteConfig {
     _legacyMigrated?: boolean;
@@ -171,7 +160,7 @@ const rewriteEndpointToMatchHttpsTab = (originLike: string): string => {
 
 function loadStoredRemoteConfig(): MigratedRemoteConfig {
     try {
-        const raw = globalThis?.localStorage?.getItem?.(STORAGE_KEY);
+        const raw = globalThis?.localStorage?.getItem?.(AIRPAD_REMOTE_CONFIG_STORAGE_KEY);
         if (!raw) return {};
         const parsed = JSON.parse(raw) as StoredRemoteConfig;
         if (!parsed || typeof parsed !== "object") return {};
@@ -229,7 +218,8 @@ const readGlobalAirpadValue = (keys: string[]): string => {
 
 function persistRemoteConfig(): void {
     try {
-        globalThis?.localStorage?.setItem?.(STORAGE_KEY, JSON.stringify({
+        const payload: CwspRemoteConnectionV1 = {
+            v: CWSP_REMOTE_CONNECTION_JSON_VERSION,
             quickConnectValue: remoteConfig.quickConnectValue,
             endpointUrl: remoteConfig.endpointUrl,
             directUrl: remoteConfig.directUrl,
@@ -237,7 +227,13 @@ function persistRemoteConfig(): void {
             accessToken: remoteConfig.accessToken,
             clientId: remoteConfig.clientId,
             peerInstanceId: remoteConfig.peerInstanceId,
-        }));
+            identificationToken: remoteConfig.identificationToken.trim() || undefined,
+            clientAccessToken: remoteConfig.clientAccessToken.trim() || undefined
+        };
+        if (remoteConfig.wireTransport === "ws" || remoteConfig.wireTransport === "socket.io") {
+            payload.wireTransport = remoteConfig.wireTransport;
+        }
+        globalThis?.localStorage?.setItem?.(AIRPAD_REMOTE_CONFIG_STORAGE_KEY, JSON.stringify(payload));
     } catch {
         // localStorage unavailable (private mode, SSR, etc.)
     }
@@ -261,6 +257,9 @@ const remoteConfig: {
     destinationId: string;
     clientId: string;
     peerInstanceId: string;
+    identificationToken: string;
+    clientAccessToken: string;
+    wireTransport?: CwspRemoteConnectionV1["wireTransport"];
 } = {
     quickConnectValue: "",
     endpointUrl: "",
@@ -269,6 +268,8 @@ const remoteConfig: {
     destinationId: "",
     clientId: "",
     peerInstanceId: "",
+    identificationToken: "",
+    clientAccessToken: ""
 };
 
 /** IndexedDB “Server” tab: userId fallback for AirPad client identity (CWS_ASSOCIATED_*). */
@@ -345,6 +346,10 @@ function hydrateFromStored(stored: MigratedRemoteConfig): void {
     } else if (!remoteConfig.peerInstanceId) {
         remoteConfig.peerInstanceId = createPeerInstanceId();
     }
+    remoteConfig.identificationToken = toTrimmedString((stored as StoredRemoteConfig).identificationToken);
+    remoteConfig.clientAccessToken = toTrimmedString((stored as StoredRemoteConfig).clientAccessToken);
+    const wt = (stored as StoredRemoteConfig).wireTransport;
+    remoteConfig.wireTransport = wt === "ws" || wt === "socket.io" ? wt : undefined;
     refreshRemoteHost();
 }
 
@@ -358,7 +363,8 @@ const storedLegacyAuthToken = toTrimmedString((stored as StoredRemoteConfig).aut
 if (
     (stored as MigratedRemoteConfig)._legacyMigrated === true ||
     !(stored as StoredRemoteConfig).peerInstanceId ||
-    (storedLegacyAuthToken && !storedAccessToken)
+    (storedLegacyAuthToken && !storedAccessToken) ||
+    (stored as CwspRemoteConnectionV1).v !== CWSP_REMOTE_CONNECTION_JSON_VERSION
 ) {
     persistRemoteConfig();
 }
@@ -371,7 +377,7 @@ export function reloadAirpadRemoteConfigFromStorage(): void {
 /** When another tab updates AirPad settings, refresh in-memory state and crypto caches. */
 export function attachAirpadCrossTabConfigSync(): () => void {
     const onStorage = (e: StorageEvent): void => {
-        if (e.key !== STORAGE_KEY || e.newValue == null) return;
+        if (e.key !== AIRPAD_REMOTE_CONFIG_STORAGE_KEY || e.newValue == null) return;
         reloadAirpadRemoteConfigFromStorage();
         invalidateAirpadTransportCredentials();
     };
@@ -392,6 +398,12 @@ export type AirpadRemoteConfigInput = {
     /** Legacy routed destination field; maps to destinationId for compatibility. */
     routeTarget?: string;
     clientId?: string;
+    /** Native-style wire identification (`cwsp.token`). */
+    identificationToken?: string;
+    /** Inbound / reverse ACL token (native `clientAccessToken`). */
+    clientAccessToken?: string;
+    /** Native transport selector when shell does not override (`ws` | `socket.io`). */
+    wireTransport?: CwspRemoteConnectionV1["wireTransport"];
 };
 
 export function applyAirpadRemoteConfig(input: AirpadRemoteConfigInput, options?: { persist?: boolean }): void {
@@ -415,6 +427,15 @@ export function applyAirpadRemoteConfig(input: AirpadRemoteConfigInput, options?
     }
     if (input.clientId !== undefined) {
         remoteConfig.clientId = (input.clientId || "").trim();
+    }
+    if (input.identificationToken !== undefined) {
+        remoteConfig.identificationToken = (input.identificationToken || "").trim();
+    }
+    if (input.clientAccessToken !== undefined) {
+        remoteConfig.clientAccessToken = (input.clientAccessToken || "").trim();
+    }
+    if (input.wireTransport === "ws" || input.wireTransport === "socket.io") {
+        remoteConfig.wireTransport = input.wireTransport;
     }
     refreshRemoteHost();
     if (options?.persist !== false) {
@@ -450,8 +471,8 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     shellClipboardPushIntervalMs =
         Number.isFinite(intervalRaw) && intervalRaw >= 800 ? Math.min(Math.round(intervalRaw), 60000) : 2000;
     shellClipboardBroadcastTargets = (shell?.clipboardBroadcastTargets || "").trim();
-    /** Align with {@link isMaintainHubSocketConnectionEnabled}: explicit false disables; missing shells default on. */
-    shellMaintainHubSocket = (shell?.maintainHubSocketConnection ?? true) !== false;
+    /** Only on when settings explicitly set shell.maintainHubSocketConnection === true (default off). */
+    shellMaintainHubSocket = shell?.maintainHubSocketConnection === true;
     shellPreferNativeWebsocket = (shell?.preferNativeWebsocket ?? interop?.preferNativeWebsocket ?? true) !== false;
     shellNativeSmsEnabled = (shell?.enableNativeSms ?? true) !== false;
     shellNativeContactsEnabled = (shell?.enableNativeContacts ?? true) !== false;
@@ -725,6 +746,8 @@ export function getAssociatedClientToken(): string {
 export function getClientAccessToken(): string {
     const local = coreSocketClientAccessToken.trim();
     if (local) return local;
+    const fromRemote = remoteConfig.clientAccessToken.trim();
+    if (fromRemote) return fromRemote;
     return readGlobalAirpadValue(["CWS_CLIENT_ACCESS_TOKEN", "CLIENT_ACCESS_TOKEN"]);
 }
 
