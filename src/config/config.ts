@@ -16,6 +16,11 @@ import {
     resolveWireConnectionType,
 } from "cwsp-shared/cws-client-wire-defaults";
 import {
+    looksLikeConnectHost,
+    normalizeConnectHostInput,
+    resolveConnectHostToOrigin
+} from "cwsp-shared/cwsp-endpoint-resolve";
+import {
     AIRPAD_REMOTE_CONFIG_STORAGE_KEY,
     CWSP_REMOTE_CONNECTION_JSON_VERSION,
     type CwspRemoteConnectionV1
@@ -55,29 +60,9 @@ const appendPort = (value: string, port: string): string => {
     return `${valueTrimmed}:${portTrimmed}`;
 };
 
-const normalizeOriginUrl = (value: unknown): string => {
-    const trimmed = toTrimmedString(value);
-    if (!trimmed) return "";
-    try {
-        const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`);
-        return `${url.protocol}//${url.host}/`;
-    } catch {
-        return trimmed;
-    }
-};
+const normalizeOriginUrl = (value: unknown): string => normalizeConnectHostInput(toTrimmedString(value));
 
-const looksLikeConnectUrl = (value: string): boolean => {
-    const trimmed = value.trim();
-    if (!trimmed) return false;
-    if (/^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed)) return true;
-    if (trimmed.startsWith("localhost")) return true;
-    if (trimmed.includes("/")) return true;
-    if (/^\[[0-9a-f:]+\](?::\d{1,5})?$/i.test(trimmed)) return true;
-    if (/^\d{1,3}(?:\.\d{1,3}){3}(?::\d{1,5})?$/.test(trimmed)) return true;
-    if (/^[^.\s:]+:\d{1,5}$/.test(trimmed)) return true;
-    if (/^[a-z0-9-]+(?:\.[a-z0-9-]+)+(?::\d{1,5})?$/i.test(trimmed)) return true;
-    return false;
-};
+const looksLikeConnectUrl = looksLikeConnectHost;
 
 const joinUniqueUrls = (...values: Array<string | undefined>): string => {
     return Array.from(
@@ -355,6 +340,22 @@ function hydrateFromStored(stored: MigratedRemoteConfig): void {
 
 const stored = loadStoredRemoteConfig();
 hydrateFromStored(stored);
+
+/** Re-probe stored origins so stale `:8443`/`:443` rows track admin/public fallback binds. */
+const rediscoverStoredRemoteUrls = async (): Promise<void> => {
+    const input: AirpadRemoteConfigInput = {};
+    if (remoteConfig.directUrl.trim()) {
+        const next = await resolveConnectHostToOrigin(remoteConfig.directUrl.trim());
+        if (next && next !== remoteConfig.directUrl.trim()) input.directUrl = next;
+    }
+    if (remoteConfig.endpointUrl.trim()) {
+        const next = await resolveConnectHostToOrigin(remoteConfig.endpointUrl.trim());
+        if (next && next !== remoteConfig.endpointUrl.trim()) input.endpointUrl = next;
+    }
+    if (Object.keys(input).length) applyAirpadRemoteConfig(input, { persist: true });
+};
+void rediscoverStoredRemoteUrls();
+
 if (!toTrimmedString((stored as StoredRemoteConfig).peerInstanceId)) {
     remoteConfig.peerInstanceId = remoteConfig.peerInstanceId || createPeerInstanceId();
 }
@@ -652,9 +653,9 @@ export function getAirPadQuickConnectTarget(): string {
 
 /**
  * Quick-connect accepts either a target device id (routed through the Server-tab
- * endpoint URL) or a direct URL/host:port override.
+ * endpoint URL) or a direct host/IP/domain (port auto-discovered when omitted).
  */
-export function setAirPadQuickConnectTarget(value: string): void {
+export async function setAirPadQuickConnectTarget(value: string): Promise<void> {
     const trimmed = toTrimmedString(value);
     remoteConfig.quickConnectValue = trimmed;
     if (!trimmed) {
@@ -665,7 +666,7 @@ export function setAirPadQuickConnectTarget(value: string): void {
         return;
     }
     if (looksLikeConnectUrl(trimmed)) {
-        remoteConfig.directUrl = normalizeOriginUrl(trimmed);
+        remoteConfig.directUrl = await resolveConnectHostToOrigin(trimmed);
         remoteConfig.destinationId = "";
     } else {
         remoteConfig.destinationId = trimmed;
@@ -675,8 +676,8 @@ export function setAirPadQuickConnectTarget(value: string): void {
     persistRemoteConfig();
 }
 
-export function setRemoteHost(host: string): void {
-    remoteConfig.endpointUrl = normalizeOriginUrl(host);
+export async function setRemoteHost(host: string): Promise<void> {
+    remoteConfig.endpointUrl = await resolveConnectHostToOrigin(host);
     refreshRemoteHost();
     persistRemoteConfig();
 }
@@ -685,8 +686,40 @@ export function getRemoteProtocol(): RemoteProtocol {
     return coreSocketProtocol;
 }
 
+/** Infer canonical peer id (e.g. `L-192.168.0.110`) from a direct connect URL/host. */
+const inferControlNodeIdFromUrl = (value: string): string => {
+    const normalized = normalizeOriginUrl(value);
+    if (!normalized) return "";
+    try {
+        const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)
+            ? normalized
+            : `https://${normalized}`;
+        const host = new URL(withScheme).hostname.trim();
+        if (!host) return "";
+        return /^L-/i.test(host) ? host : `L-${host}`;
+    } catch {
+        const bare = normalized.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split("/")[0]?.split(":")[0]?.trim() || "";
+        if (!bare) return "";
+        return /^L-/i.test(bare) ? bare : `L-${bare}`;
+    }
+};
+
+/**
+ * Coordinator routing target for mouse/keyboard/clipboard acts and handshake hints.
+ * Empty string means "execute on the peer we are socket-connected to" (direct mode).
+ */
 export function getRemoteRouteTarget(): string {
     if (remoteConfig.destinationId.trim()) return remoteConfig.destinationId.trim();
+
+    const direct = remoteConfig.directUrl.trim();
+    const endpoint = remoteConfig.endpointUrl.trim();
+    if (direct) {
+        // Gateway + direct target: forward control to the direct device, not the controller's self id.
+        if (endpoint) return inferControlNodeIdFromUrl(direct);
+        // Pure direct connect: empty nodes so the connected host handles input locally.
+        return "";
+    }
+
     return coreSocketRouteTarget;
 }
 

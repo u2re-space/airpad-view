@@ -54,7 +54,7 @@ export function createConfigUI(): HTMLElement {
                         type="text"
                         id="airpadQuickConnect"
                         name="airpad-quick-connect"
-                        placeholder="L-192.168.0.110 or https://192.168.0.110:8443/"
+                        placeholder="192.168.0.110 or 45.147.121.152"
                     />
                     <label for="airpadAuthPass"><strong>Auth pass token</strong> (optional):</label>
                     <input
@@ -65,7 +65,7 @@ export function createConfigUI(): HTMLElement {
                         placeholder="If the remote requires a control token for input/mouse"
                     />
                     <div class="field-hint">
-                        Target device ID or URL:port. Default identity and tokens stay in Settings → Server; set an auth pass here when the peer rejects control without it.
+                        Target device ID, IP, or domain. Ports are auto-discovered (8443, 443, 8080, …). Auth pass is optional.
                     </div>
                 </div>
             </div>
@@ -93,10 +93,12 @@ export function createConfigUI(): HTMLElement {
     };
 
     saveButton.addEventListener('click', () => {
-        setAirPadQuickConnectTarget(quickConnectInput.value);
-        setAccessToken(authPassInput.value);
-        reconnectAirPadSessionAfterConfigChange({ delayMs: 100 });
-        closeOverlay();
+        void (async () => {
+            await setAirPadQuickConnectTarget(quickConnectInput.value);
+            setAccessToken(authPassInput.value);
+            reconnectAirPadSessionAfterConfigChange({ delayMs: 100 });
+            closeOverlay();
+        })();
     });
 
     cancelButton.addEventListener('click', closeOverlay);
