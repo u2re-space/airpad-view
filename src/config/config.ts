@@ -62,6 +62,15 @@ const appendPort = (value: string, port: string): string => {
 
 const normalizeOriginUrl = (value: unknown): string => normalizeConnectHostInput(toTrimmedString(value));
 
+const normalizeWireTransport = (value: unknown): "ws" | undefined => {
+    const raw = toTrimmedString(value).toLowerCase();
+    if (!raw) return undefined;
+    // COMPAT: old AirPad/CWSAndroid settings stored Socket.IO as a peer option.
+    // Native `/ws` is now the only active web/Capacitor realtime rail.
+    if (raw === "ws" || raw === "wss" || raw === "socket" || raw === "socket.io" || raw === "socketio") return "ws";
+    return undefined;
+};
+
 const looksLikeConnectUrl = looksLikeConnectHost;
 
 const joinUniqueUrls = (...values: Array<string | undefined>): string => {
@@ -215,8 +224,9 @@ function persistRemoteConfig(): void {
             identificationToken: remoteConfig.identificationToken.trim() || undefined,
             clientAccessToken: remoteConfig.clientAccessToken.trim() || undefined
         };
-        if (remoteConfig.wireTransport === "ws" || remoteConfig.wireTransport === "socket.io") {
-            payload.wireTransport = remoteConfig.wireTransport;
+        const wireTransport = normalizeWireTransport(remoteConfig.wireTransport);
+        if (wireTransport) {
+            payload.wireTransport = wireTransport;
         }
         globalThis?.localStorage?.setItem?.(AIRPAD_REMOTE_CONFIG_STORAGE_KEY, JSON.stringify(payload));
     } catch {
@@ -333,8 +343,7 @@ function hydrateFromStored(stored: MigratedRemoteConfig): void {
     }
     remoteConfig.identificationToken = toTrimmedString((stored as StoredRemoteConfig).identificationToken);
     remoteConfig.clientAccessToken = toTrimmedString((stored as StoredRemoteConfig).clientAccessToken);
-    const wt = (stored as StoredRemoteConfig).wireTransport;
-    remoteConfig.wireTransport = wt === "ws" || wt === "socket.io" ? wt : undefined;
+    remoteConfig.wireTransport = normalizeWireTransport((stored as StoredRemoteConfig).wireTransport);
     refreshRemoteHost();
 }
 
@@ -403,7 +412,7 @@ export type AirpadRemoteConfigInput = {
     identificationToken?: string;
     /** Inbound / reverse ACL token (native `clientAccessToken`). */
     clientAccessToken?: string;
-    /** Native transport selector when shell does not override (`ws` | `socket.io`). */
+    /** Native transport selector when shell does not override. Legacy `socket.io` inputs migrate to `ws`. */
     wireTransport?: CwspRemoteConnectionV1["wireTransport"];
 };
 
@@ -435,8 +444,9 @@ export function applyAirpadRemoteConfig(input: AirpadRemoteConfigInput, options?
     if (input.clientAccessToken !== undefined) {
         remoteConfig.clientAccessToken = (input.clientAccessToken || "").trim();
     }
-    if (input.wireTransport === "ws" || input.wireTransport === "socket.io") {
-        remoteConfig.wireTransport = input.wireTransport;
+    const wireTransport = normalizeWireTransport(input.wireTransport);
+    if (wireTransport) {
+        remoteConfig.wireTransport = wireTransport;
     }
     refreshRemoteHost();
     if (options?.persist !== false) {
