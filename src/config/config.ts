@@ -23,6 +23,8 @@ import {
 import {
     AIRPAD_REMOTE_CONFIG_STORAGE_KEY,
     CWSP_REMOTE_CONNECTION_JSON_VERSION,
+    appSettingsToRemoteConnectionV1,
+    stringifyCwspRemoteConnectionV1,
     type CwspRemoteConnectionV1
 } from "../../../../projects/subsystem/runtime/airpad-cwsp-client-parity";
 
@@ -454,6 +456,45 @@ export function applyAirpadRemoteConfig(input: AirpadRemoteConfigInput, options?
     }
 }
 
+/**
+ * Project Settings → AirPad `localStorage` ({@link AIRPAD_REMOTE_CONFIG_STORAGE_KEY}) + in-memory remoteConfig.
+ * Call after Save on Capacitor/native so NS `/ws` can read the same blob.
+ */
+export function syncAirpadRemoteConfigFromAppSettings(
+    settings: AppSettings,
+    options?: { persist?: boolean }
+): void {
+    const blob = appSettingsToRemoteConnectionV1(settings as unknown as Record<string, unknown>);
+    const input: AirpadRemoteConfigInput = {};
+    if (blob.endpointUrl) input.endpointUrl = blob.endpointUrl;
+    if (blob.directUrl) input.directUrl = blob.directUrl;
+    if (blob.quickConnectValue) input.quickConnectValue = blob.quickConnectValue;
+    if (blob.destinationId || blob.routeTarget) {
+        input.destinationId = blob.destinationId || blob.routeTarget;
+    }
+    if (blob.accessToken || blob.authToken) input.accessToken = blob.accessToken || blob.authToken;
+    if (blob.clientId) input.clientId = blob.clientId;
+    if (blob.peerInstanceId) input.peerInstanceId = blob.peerInstanceId;
+    if (blob.identificationToken) input.identificationToken = blob.identificationToken;
+    if (blob.clientAccessToken) input.clientAccessToken = blob.clientAccessToken;
+    if (blob.wireTransport) input.wireTransport = blob.wireTransport;
+
+    const hasData = Boolean(
+        input.endpointUrl ||
+        input.directUrl ||
+        input.quickConnectValue ||
+        input.destinationId ||
+        input.accessToken ||
+        input.clientId ||
+        input.peerInstanceId ||
+        input.identificationToken ||
+        input.clientAccessToken
+    );
+    if (hasData) {
+        applyAirpadRemoteConfig(input, { persist: options?.persist ?? true });
+    }
+}
+
 const endpointUrlToAirpadConnectHost = (endpointUrl: string): string => {
     try {
         const u = new URL(endpointUrl);
@@ -513,6 +554,7 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     if (Object.keys(input).length) {
         applyAirpadRemoteConfig(input, { persist: false });
     }
+    syncAirpadRemoteConfigFromAppSettings(settings, { persist: false });
     try {
         (globalThis as unknown as { __CWS_SHELL_FEATURES__?: Record<string, boolean> }).__CWS_SHELL_FEATURES__ = {
             clipboardBridge: shellRemoteClipboardEnabled,
@@ -576,6 +618,30 @@ export function shouldBypassClipboardInboundAllowlistWithAccessToken(): boolean 
     return shellAccessTokenBypassesClipboardAllowlist && Boolean(getAccessToken().trim());
 }
 
+/** COMPAT: endpoint ids may arrive as `L-192.168.0.110` or bare `192.168.0.110`. */
+export function normalizeClipboardPeerId(value: string): string {
+    const raw = value.trim().toLowerCase();
+    if (!raw) return "";
+    if (raw.startsWith("l-")) return raw;
+    if (/^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(raw)) return `l-${raw}`;
+    return raw;
+}
+
+/**
+ * Capacitor Android: keep `/ws` up for inbound desktop clipboard even when AirPad view is closed.
+ * Does not replace {@link isMaintainHubSocketConnectionEnabled} (full background hub lifecycle).
+ */
+export function isClipboardHubBootstrapEnabled(): boolean {
+    try {
+        const c = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
+        const native = typeof c?.isNativePlatform === "function" && Boolean(c.isNativePlatform());
+        if (!native) return false;
+    } catch {
+        return false;
+    }
+    return isShellRemoteClipboardBridgeEnabled() && isApplyRemoteClipboardToDeviceEnabled();
+}
+
 /**
  * Inbound clipboard from `senderId` (peer / device id on the wire). Respects allow list unless bypassed by access token.
  */
@@ -585,9 +651,9 @@ export function isClipboardSenderAllowedForInbound(senderId: string): boolean {
     if (shouldBypassClipboardInboundAllowlistWithAccessToken()) return true;
     const allow = parseWireTargetList(shellClipboardInboundAllowIds);
     if (!allow.length) return true;
-    const s = senderId.trim().toLowerCase();
+    const s = normalizeClipboardPeerId(senderId);
     if (!s) return false;
-    return allow.some((e) => e.nodeId.trim().toLowerCase() === s);
+    return allow.some((e) => normalizeClipboardPeerId(e.nodeId) === s);
 }
 
 /**

@@ -15,7 +15,7 @@ import {
 } from "./rails/packet-ws";
 import type { AirPadClipboardResult, AirPadIntent } from "./intents";
 import { invalidateAirpadTransportCredentials } from "../credential-cache-bridge";
-import { isMaintainHubSocketConnectionEnabled } from "../config/config";
+import { isClipboardHubBootstrapEnabled, isMaintainHubSocketConnectionEnabled } from "../config/config";
 import {
     sendCoordinatorAct,
     sendCoordinatorAsk,
@@ -94,7 +94,7 @@ export const airPadNetworkCoordinator: AirPadNetworkCoordinator = {
     },
 
     disconnect(): void {
-        if (isMaintainHubSocketConnectionEnabled()) return;
+        if (isMaintainHubSocketConnectionEnabled() || isClipboardHubBootstrapEnabled()) return;
         disconnectPacketWsRail();
     },
 
