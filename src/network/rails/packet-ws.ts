@@ -1,4 +1,4 @@
-import { isShellRemoteClipboardBridgeEnabled } from "../../config/config";
+import { getAirPadDestinationId, isShellRemoteClipboardBridgeEnabled } from "../../config/config";
 import {
     connectWS,
     disconnectWS,
@@ -104,13 +104,18 @@ export const onPacketWsClipboardUpdate = (handler: (text: string, meta?: { sourc
     return onServerClipboardUpdate(handler);
 };
 
+const resolveInputRouteNodes = (): string[] | undefined => {
+    const target = getAirPadDestinationId().trim();
+    return target ? [target] : undefined;
+};
+
 export const sendPacketWsIntent = (intent: AirPadIntent): void => {
     if (intent.type === "gesture.swipe") {
         return;
     }
     const action = toCoordinatorAction(intent);
     if (!action) return;
-    sendCoordinatorAct(action.what, action.payload);
+    sendCoordinatorAct(action.what, action.payload, resolveInputRouteNodes());
 };
 
 export const sendPacketWsBinary = (buffer: ArrayBuffer | Uint8Array): void => {

@@ -3,7 +3,6 @@
 // =========================
 
 import { log } from '../../utils/utils';
-import { isAirPadSessionConnected } from '../../network/session';
 import { enqueueMotion } from '../../config/motion-state';
 import { getAirState, setMotionCalibrated } from '../../ui/air-button';
 import { ACCELEROMETER_DEADZONE, ACCELEROMETER_GAIN, ACCELEROMETER_SMOOTH, ACCELEROMETER_MAX_SAMPLE_COUNT, GRAVITY_CORRECTION_STRENGTH, accelSrcForMouseX, accelSrcForMouseY, accelSrcForMouseZ, accelDirX, accelDirY, accelDirZ } from '../../config/config';
@@ -36,6 +35,7 @@ export function resetAccelerometerState() {
 // Called when entering AIR_MOVE mode
 export function onEnterAirMove() {
     resetAccelState();
+    accelInitAttempted = false;
 }
 
 // Monte Carlo sampling for real-time calibration
@@ -222,7 +222,6 @@ export function initAccelerometer() {
 
         // Проверяем состояния
         if (getAirState() !== 'AIR_MOVE') { return; }
-        if (!isAirPadSessionConnected()) return;
         if (aiModeActive) return;
 
         // selection of axes for mouse
@@ -234,4 +233,21 @@ export function initAccelerometer() {
     });
 
     accelerometer.start(); log('Accelerometer started (60 Hz)');
+}
+
+let accelInitAttempted = false;
+
+/** (Re)start accelerometer on Air hold when Generic Sensor API needs user activation. */
+export function ensureAccelerometerActive(): void {
+    if (accelerometer) {
+        try {
+            accelerometer.start?.();
+        } catch (err: unknown) {
+            log(`Accelerometer restart failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+    }
+    if (accelInitAttempted) return;
+    accelInitAttempted = true;
+    initAccelerometer();
 }

@@ -1,4 +1,5 @@
-import { disconnectAirPadSession } from "../network/session";
+import { disconnectAirPadSession, connectAirPadSession } from "../network/session";
+import { isMaintainHubSocketConnectionEnabled } from "../config/config";
 import { setRemoteKeyboardEnabled } from "../input/virtual-keyboard";
 import { unmountAirpadRuntime } from "../main";
 import { waitForDomPaint } from "shared/policies/event-handling-policy";
@@ -17,6 +18,7 @@ export class AirpadController {
             contentHost.innerHTML = "";
             await waitForDomPaint();
             await mountAirpad(contentHost);
+            connectAirPadSession();
             this.initialized = true;
         })().finally(() => {
             this.mountPromise = null;
@@ -28,7 +30,9 @@ export class AirpadController {
     unmount(): void {
         unmountAirpadRuntime();
         setRemoteKeyboardEnabled(false);
-        disconnectAirPadSession();
+        if (!isMaintainHubSocketConnectionEnabled()) {
+            disconnectAirPadSession();
+        }
         this.initialized = false;
         this.mountPromise = null;
     }

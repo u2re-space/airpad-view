@@ -32,8 +32,6 @@ import {
     lerp,
     clamp01,
 } from '../../utils/math';
-import { isAirPadSessionConnected } from '../../network/session';
-
 
 let relSensor: any = null;
 let fallbackOrientationActive = false;
@@ -211,15 +209,31 @@ function handleReading(quat: number[], dt: number): Vector3 {
     return mapped;
 }
 
-export function initRelativeOrientation() {
-    stopRelativeOrientation();
+/** iOS / some Android WebViews require a user-gesture permission prompt for orientation events. */
+export async function requestMotionSensorPermission(): Promise<boolean> {
+    const DOE = (globalThis as { DeviceOrientationEvent?: { requestPermission?: () => Promise<string> } }).DeviceOrientationEvent;
+    if (DOE && typeof DOE.requestPermission === "function") {
+        try {
+            const state = await DOE.requestPermission();
+            if (state !== "granted") {
+                log(`Device orientation permission denied: ${state}`);
+                return false;
+            }
+            return true;
+        } catch (err: unknown) {
+            log(`Device orientation permission error: ${err instanceof Error ? err.message : String(err)}`);
+            return false;
+        }
+    }
+    return true;
+}
 
-    const startDeviceOrientationFallback = () => {
-        if (fallbackOrientationActive) return;
-        let lastTs = performance.now();
-        let lastEuler = { x: 0, y: 0, z: 0 };
+const startDeviceOrientationFallback = (): void => {
+    if (fallbackOrientationActive) return;
+    let lastTs = performance.now();
+    let lastEuler = { x: 0, y: 0, z: 0 };
 
-        fallbackHandler = (event: DeviceOrientationEvent) => {
+    fallbackHandler = (event: DeviceOrientationEvent) => {
             const now = performance.now();
             const dt = Math.max(0.00001, (now - lastTs) / 1000);
             lastTs = now;
@@ -247,16 +261,27 @@ export function initRelativeOrientation() {
             }, dt));
 
             if (getAirState && getAirState() !== 'AIR_MOVE') return;
-            if (!isAirPadSessionConnected()) return;
             if (aiModeActive) return;
             if (vec3IsNearZero(mapped, MOTION_JITTER_EPS)) return;
             enqueueMotion(mapped.x, mapped.y, mapped.z);
         };
 
-        globalThis.addEventListener("deviceorientation", fallbackHandler as EventListener, { passive: true });
-        fallbackOrientationActive = true;
-        log("RelativeOrientation fallback active (deviceorientation)");
-    };
+    globalThis.addEventListener("deviceorientation", fallbackHandler as EventListener, { passive: true });
+    fallbackOrientationActive = true;
+    log("RelativeOrientation fallback active (deviceorientation)");
+};
+
+/**
+ * (Re)start motion sensors after the Air hold gesture — required on Android/Capacitor
+ * where Generic Sensor API start() fails without user activation.
+ */
+export async function ensureAirMoveMotionSensors(): Promise<void> {
+    await requestMotionSensorPermission();
+    initRelativeOrientation();
+}
+
+export function initRelativeOrientation() {
+    stopRelativeOrientation();
 
     if (!(window as any).RelativeOrientationSensor ) {
         log('RelativeOrientationSensor API is not supported.');
@@ -269,6 +294,7 @@ export function initRelativeOrientation() {
     } catch (err: any) {
         log('Cannot create RelativeOrientationSensor: ' + (err?.message || err));
         relSensor = null;
+        startDeviceOrientationFallback();
         return;
     }
 
@@ -283,7 +309,6 @@ export function initRelativeOrientation() {
 
         //
         if (getAirState && getAirState() !== 'AIR_MOVE') return;
-        if (!isAirPadSessionConnected()) return;
         if (aiModeActive) return;
 
         // Accumulate into unified motion queue
@@ -300,5 +325,6 @@ export function initRelativeOrientation() {
         log('RelativeOrientationSensor started (120 Hz)');
     } catch (err: any) {
         log('RelativeOrientationSensor start failed: ' + (err?.message || err));
+        startDeviceOrientationFallback();
     }
 }

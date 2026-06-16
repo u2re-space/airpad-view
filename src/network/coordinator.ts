@@ -15,12 +15,14 @@ import {
 } from "./rails/packet-ws";
 import type { AirPadClipboardResult, AirPadIntent } from "./intents";
 import { invalidateAirpadTransportCredentials } from "../credential-cache-bridge";
+import { isMaintainHubSocketConnectionEnabled } from "../config/config";
 import {
     sendCoordinatorAct,
     sendCoordinatorAsk,
     sendCoordinatorRequest,
     onVoiceResult,
-    isWSConnected
+    isWSConnected,
+    reconnectTransportAfterLifecycleResume
 } from "shared/transport/websocket";
 import { getRemoteHost, getRemoteProtocol } from "../config/config";
 
@@ -84,19 +86,24 @@ export const airPadNetworkCoordinator: AirPadNetworkCoordinator = {
     },
 
     connect(): void {
+        if (!isWSConnected()) {
+            reconnectTransportAfterLifecycleResume("airpad-connect");
+            return;
+        }
         connectPacketWsRail();
     },
 
     disconnect(): void {
+        if (isMaintainHubSocketConnectionEnabled()) return;
         disconnectPacketWsRail();
     },
 
     reconnectAfterConfigChange(options?: { delayMs?: number }): void {
-        disconnectPacketWsRail();
         invalidateAirpadTransportCredentials();
         const delayMs = options?.delayMs ?? 80;
+        // WHY: hub socket may already be connected to a stale host/route; connectWS() no-ops when connected.
         sleep(delayMs).then(() => {
-            connectPacketWsRail();
+            reconnectTransportAfterLifecycleResume("airpad-config");
         }).catch(() => {
             console.warn("[AirPad] reconnect after config failed");
         });

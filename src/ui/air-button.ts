@@ -6,8 +6,9 @@ import { log, getAirButton, getAirNeighborButton, getAirStatusEl } from '../util
 import { connectAirPadSession, sendAirPadIntent } from '../network/session';
 import { checkIsAiModeActive } from '../input/speech';
 import { HOLD_DELAY, TAP_THRESHOLD, MOVE_TAP_THRESHOLD, SWIPE_THRESHOLD } from '../config/config';
-import { onEnterAirMove as gyroOnEnterAirMove } from '../input/unfinised/gyroscope';
-import { onEnterAirMove as accelOnEnterAirMove } from '../input/unfinised/accelerometer';
+import { onEnterAirMove as gyroOnEnterAirMove, ensureGyroscopeActive } from '../input/unfinised/gyroscope';
+import { onEnterAirMove as accelOnEnterAirMove, ensureAccelerometerActive } from '../input/unfinised/accelerometer';
+import { ensureAirMoveMotionSensors, resetRelativeOrientationRuntimeState } from '../input/sensor/relative-orientation';
 
 export type AirState = 'IDLE' | 'WAIT_TAP_OR_HOLD' | 'AIR_MOVE' | 'GESTURE_SWIPE';
 
@@ -141,10 +142,14 @@ export function resetAirState() {
 export function enterAirMove(startDrag: boolean = false) {
     setAirStatus('AIR_MOVE');
     resetMotionBaseline();
+    resetRelativeOrientationRuntimeState();
 
-    // Инициализируем датчики для управления курсором
+    // WHY: sensor APIs on Android/Capacitor need a user-gesture (Air hold) to start.
     gyroOnEnterAirMove();
     accelOnEnterAirMove();
+    void ensureAirMoveMotionSensors();
+    ensureGyroscopeActive();
+    ensureAccelerometerActive();
 
     // Активируем drag если нужно
     if (startDrag && !dragActive) {

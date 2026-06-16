@@ -3,7 +3,6 @@
 // =========================
 
 import { log } from '../../utils/utils';
-import { isAirPadSessionConnected } from '../../network/session';
 import { enqueueMotion } from '../../config/motion-state';
 import { aiModeActive } from '../speech';
 import { getAirState, isMotionCalibrated, setMotionCalibrated, resetMotionBaseline } from '../../ui/air-button';
@@ -59,6 +58,7 @@ export function resetGyroscopeState() {
 // Called when entering AIR_MOVE mode
 export function onEnterAirMove() {
     resetGyroState();
+    gyroInitAttempted = false;
 }
 
 // Monte Carlo sampling for real-time calibration
@@ -258,7 +258,6 @@ export function initGyro() {
 
         // Проверяем состояния
         if (getAirState() !== 'AIR_MOVE') { return; }
-        if (!isAirPadSessionConnected()) return;
         if (aiModeActive) return;
 
         // selection of axes for mouse (as you previously selected axes of accelerometer)
@@ -271,4 +270,21 @@ export function initGyro() {
 
     gyroscope.start();
     log('Gyroscope started (60 Hz, angle integration)');
+}
+
+let gyroInitAttempted = false;
+
+/** (Re)start gyro on Air hold — Android WebView often blocks sensor start at page load. */
+export function ensureGyroscopeActive(): void {
+    if (gyroscope) {
+        try {
+            gyroscope.start?.();
+        } catch (err: unknown) {
+            log(`Gyroscope restart failed: ${err instanceof Error ? err.message : String(err)}`);
+        }
+        return;
+    }
+    if (gyroInitAttempted) return;
+    gyroInitAttempted = true;
+    initGyro();
 }

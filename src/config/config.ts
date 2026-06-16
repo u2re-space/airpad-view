@@ -482,7 +482,7 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     shellClipboardPushIntervalMs =
         Number.isFinite(intervalRaw) && intervalRaw >= 800 ? Math.min(Math.round(intervalRaw), 60000) : 2000;
     shellClipboardBroadcastTargets = (shell?.clipboardBroadcastTargets || "").trim();
-    /** Only on when settings explicitly set shell.maintainHubSocketConnection === true (default off). */
+    /** Default off; enable in Settings when background clipboard/hub sync is needed. */
     shellMaintainHubSocket = shell?.maintainHubSocketConnection === true;
     shellPreferNativeWebsocket = (shell?.preferNativeWebsocket ?? interop?.preferNativeWebsocket ?? true) !== false;
     shellNativeSmsEnabled = (shell?.enableNativeSms ?? true) !== false;

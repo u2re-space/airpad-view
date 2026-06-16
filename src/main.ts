@@ -15,6 +15,8 @@ import { initSpeechRecognition, initAiButton } from "./input/speech";
 import { initAirButton } from "./ui/air-button";
 import { initRelativeOrientation } from "./input/sensor/relative-orientation";
 import { stopRelativeOrientation } from "./input/sensor/relative-orientation";
+import { initGyro } from "./input/unfinised/gyroscope";
+import { initAccelerometer } from "./input/unfinised/accelerometer";
 import { initVirtualKeyboard, setRemoteKeyboardEnabled } from "./input/virtual-keyboard";
 import { teardownKeyboardDismissListeners } from "./input/keyboard/handlers";
 import { initClipboardToolbar } from "./ui/clipboard-toolbar";
@@ -273,12 +275,14 @@ async function initAirpadApp(initToken: number | undefined, signal: AbortSignal,
     runInitializer("adaptive hint", () => initAdaptiveHintPanel());
 
     log('Готово. Нажми "WS Connect", затем используй Air/AI кнопки.');
-    log("Движение мыши основано только на Gyroscope API (повороты телефона).");
+    log("Движение мыши: RelativeOrientation + Gyroscope/Accelerometer (запуск при удержании Air).");
 
-    // Phase 2 — sensors: can block main thread on some devices; start after first paint.
+    // Phase 2 — sensors: best-effort at idle; Air hold re-starts with user activation.
     const startSensors = (): void => {
         if (aborted()) return;
         runInitializer("relative orientation", () => initRelativeOrientation());
+        runInitializer("gyroscope", () => initGyro());
+        runInitializer("accelerometer", () => initAccelerometer());
     };
     if (typeof globalThis.requestIdleCallback === "function") {
         globalThis.requestIdleCallback(startSensors, { timeout: 2000 });
