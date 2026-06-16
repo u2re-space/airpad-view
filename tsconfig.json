@@ -31,6 +31,9 @@
             "com/config/Settings": [
                 "../../shared/runtime/settings-config.ts"
             ],
+            "com/config/settings/register-builtin-contributions": [
+                "../../projects/subsystem/src/other/config/settings/register-builtin-contributions.ts"
+            ],
             "fest/*": [
                 "../../shared/fest/*"
             ],
@@ -79,6 +82,8 @@
             "core/*": ["../shared/src/*"],
             "com/*": ["../shared/src/*"],
             "shared/*": ["../shared/src/*"],
+            "shared/transport/websocket": ["../../projects/subsystem/src/boot/websocket.ts"],
+            "cwsp-shared/*": ["../../projects/subsystem/runtime/*"],
             "@shared/*": ["../shared/*"],
             "fonts/*": ["../shared/assets/fonts/*"],
             "shells/immersive/index": ["../../shells/immersive-shell/src/index.ts"],

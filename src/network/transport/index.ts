@@ -13,7 +13,7 @@ import {
     sendPacketWsBinary,
     sendPacketWsIntent
 } from "../rails/packet-ws";
-import { onVoiceResult } from "shared/transport/websocket";
+import { onVoiceResult } from "../transport/websocket";
 
 export const airpadTransport = {
     init: initPacketWsRail,

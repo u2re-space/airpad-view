@@ -1,5 +1,13 @@
 import { getAirPadDestinationId, isShellRemoteClipboardBridgeEnabled } from "../../config/config";
 import {
+    encodeBinaryClick,
+    encodeBinaryKeyboard,
+    encodeBinaryMouseDown,
+    encodeBinaryMouseUp,
+    encodeBinaryMove,
+    encodeBinaryScroll
+} from "cwsp-shared/cwsp-binary-airpad";
+import {
     connectWS,
     disconnectWS,
     initWebSocket,
@@ -7,11 +15,15 @@ import {
     onServerClipboardUpdate,
     onWSConnectionChange,
     sendCoordinatorAct,
-    sendCoordinatorRequest
-} from "shared/transport/websocket";
+    sendCoordinatorRequest,
+    sendWsBinary
+} from "../transport/websocket";
 import type { AirPadClipboardResult, AirPadIntent } from "../intents";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+
+/** WHY: legacy 8-byte frames carry no `nodes` — safe only on direct connect to the executor host. */
+const canUseBinaryAirpadTransport = (): boolean => !getAirPadDestinationId().trim();
 
 const toCoordinatorAction = (intent: AirPadIntent): { what: string; payload: any } | null => {
     switch (intent.type) {
@@ -67,17 +79,40 @@ const toCoordinatorAction = (intent: AirPadIntent): { what: string; payload: any
     }
 };
 
+const trySendBinaryIntent = (intent: AirPadIntent): boolean => {
+    if (!canUseBinaryAirpadTransport()) return false;
+    if (!isWSConnected()) return false;
+    switch (intent.type) {
+        case "pointer.move":
+            return sendWsBinary(encodeBinaryMove(intent.dx, intent.dy));
+        case "pointer.scroll":
+            return sendWsBinary(encodeBinaryScroll(intent.dx || 0, intent.dy || 0));
+        case "pointer.click":
+            return sendWsBinary(
+                encodeBinaryClick(intent.button, Boolean(intent.double || intent.count === 2))
+            );
+        case "pointer.down":
+            return sendWsBinary(encodeBinaryMouseDown(intent.button));
+        case "pointer.up":
+            return sendWsBinary(encodeBinaryMouseUp(intent.button));
+        case "keyboard.binary":
+            return sendWsBinary(encodeBinaryKeyboard(intent.codePoint, intent.flags ?? 0));
+        default:
+            return false;
+    }
+};
+
 const sendKeyboardTap = async (key: string, modifier?: string[]): Promise<void> => {
-    await sendCoordinatorRequest("keyboard:tap", { key, modifier: modifier || [] });
+    await sendCoordinatorRequest("keyboard:tap", { key, modifier: modifier || [] }, resolveInputRouteNodes());
 };
 
 const requestClipboardRead = async (): Promise<string> => {
-    const text = await sendCoordinatorRequest("clipboard:get", {});
+    const text = await sendCoordinatorRequest("clipboard:get", {}, resolveInputRouteNodes());
     return typeof text === "string" ? text : String(text || "");
 };
 
 const requestClipboardWrite = async (text: string): Promise<void> => {
-    await sendCoordinatorRequest("clipboard:update", { text });
+    await sendCoordinatorRequest("clipboard:update", { text }, resolveInputRouteNodes());
 };
 
 export const initPacketWsRail = (button: HTMLElement | null): void => {
@@ -113,30 +148,32 @@ export const sendPacketWsIntent = (intent: AirPadIntent): void => {
     if (intent.type === "gesture.swipe") {
         return;
     }
+    if (trySendBinaryIntent(intent)) {
+        return;
+    }
     const action = toCoordinatorAction(intent);
     if (!action) return;
     sendCoordinatorAct(action.what, action.payload, resolveInputRouteNodes());
 };
 
 export const sendPacketWsBinary = (buffer: ArrayBuffer | Uint8Array): void => {
+    if (canUseBinaryAirpadTransport() && sendWsBinary(buffer)) {
+        return;
+    }
+    // Routed / gateway sessions need JSON coordinator acts with explicit `nodes`.
     const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
     if (bytes.byteLength < 6) return;
     const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    const type = view.getUint8(4);
-    if (type !== 6) return;
-    const codePoint = view.getUint32(0, true);
-    const flags = view.getUint8(5);
-    sendPacketWsIntent({ type: "keyboard.binary", codePoint, flags });
+    if (view.getUint8(4) !== 6) return;
+    sendPacketWsIntent({
+        type: "keyboard.binary",
+        codePoint: view.getUint32(0, true),
+        flags: view.getUint8(5)
+    });
 };
 
 export const createPacketWsKeyboardMessage = (codePoint: number, flags = 0): ArrayBuffer => {
-    const buffer = new ArrayBuffer(8);
-    const view = new DataView(buffer);
-    view.setUint32(0, codePoint, true);
-    view.setUint8(4, 6);
-    view.setUint8(5, flags);
-    view.setUint16(6, 0, true);
-    return buffer;
+    return encodeBinaryKeyboard(codePoint, flags);
 };
 
 export const requestPacketWsClipboardRead = async (): Promise<AirPadClipboardResult> => {

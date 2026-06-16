@@ -23,7 +23,7 @@ import {
     onVoiceResult,
     isWSConnected,
     reconnectTransportAfterLifecycleResume
-} from "shared/transport/websocket";
+} from "./transport/websocket";
 import { getRemoteHost, getRemoteProtocol } from "../config/config";
 
 export interface AirPadNetworkCoordinatorState {

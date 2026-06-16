@@ -14,6 +14,9 @@ import { createViewConstructor, ViewBase } from "views/registry";
 import { setRemoteKeyboardEnabled } from "./input/virtual-keyboard";
 import { ensureCwAirpadAppDefined, type CwAirpadApp } from "./component/CwAirpadApp";
 import { AirpadChannelAction } from "views/apis/channel-actions";
+import { registerAirpadSettingsContribution } from "com/config/settings/register-builtin-contributions";
+
+registerAirpadSettingsContribution();
 
 // @ts-ignore
 import style from "./airpad.scss?inline";
