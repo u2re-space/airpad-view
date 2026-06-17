@@ -5,10 +5,11 @@
 import { log, getAirButton, getAirNeighborButton, getAirStatusEl } from '../utils/utils';
 import { connectAirPadSession, sendAirPadIntent } from '../network/session';
 import { checkIsAiModeActive } from '../input/speech';
-import { HOLD_DELAY, TAP_THRESHOLD, MOVE_TAP_THRESHOLD, SWIPE_THRESHOLD } from '../config/config';
+import { TAP_THRESHOLD, MOVE_TAP_THRESHOLD, SWIPE_THRESHOLD } from '../config/config';
 import { onEnterAirMove as gyroOnEnterAirMove, ensureGyroscopeActive } from '../input/unfinised/gyroscope';
 import { onEnterAirMove as accelOnEnterAirMove, ensureAccelerometerActive } from '../input/unfinised/accelerometer';
 import { ensureAirMoveMotionSensors, resetRelativeOrientationRuntimeState } from '../input/sensor/relative-orientation';
+import { resetMotionAccum } from '../config/motion-state';
 
 export type AirState = 'IDLE' | 'WAIT_TAP_OR_HOLD' | 'AIR_MOVE' | 'GESTURE_SWIPE';
 
@@ -39,7 +40,6 @@ let airSurfacePointerId: number | null = null;
 let airSurfaceCaptureTarget: HTMLElement | null = null;
 
 const DOUBLE_TAP_WINDOW = 300;    // Окно между tap и следующим down для drag
-const DRAG_HOLD_DELAY = 150;      // Задержка hold для drag (короче обычного HOLD_DELAY)
 const TAP_MOVE_FORGIVENESS = Math.max(MOVE_TAP_THRESHOLD, 12);
 const AIR_MOVE_TAP_GRACE_MS = TAP_THRESHOLD + 140;
 const AIR_MOVE_TAP_GRACE_MOVE = Math.max(MOVE_TAP_THRESHOLD, 16);
@@ -130,10 +130,19 @@ export function resetAirState() {
     // НЕ сбрасываем lastTapEndTime и lastTapWasClean здесь!
     // Они нужны для определения double-tap между разными нажатиями
 
+    resetMotionAccum();
     resetMotionBaseline();
 }
 
 // ========== Air Move (Cursor Control via Sensors) ==========
+
+function startJsAirMoveSensors() {
+    gyroOnEnterAirMove();
+    accelOnEnterAirMove();
+    void ensureAirMoveMotionSensors();
+    ensureGyroscopeActive();
+    ensureAccelerometerActive();
+}
 
 /**
  * Входит в режим AIR_MOVE — управление курсором через гироскоп/акселерометр.
@@ -143,13 +152,9 @@ export function enterAirMove(startDrag: boolean = false) {
     setAirStatus('AIR_MOVE');
     resetMotionBaseline();
     resetRelativeOrientationRuntimeState();
-
-    // WHY: sensor APIs on Android/Capacitor need a user-gesture (Air hold) to start.
-    gyroOnEnterAirMove();
-    accelOnEnterAirMove();
-    void ensureAirMoveMotionSensors();
-    ensureGyroscopeActive();
-    ensureAccelerometerActive();
+    // WHY: native Android AirMouse can start, but currently does not prove routed
+    // mouse output. Keep the known WebView sensor path live until native deltas are verified.
+    startJsAirMoveSensors();
 
     // Активируем drag если нужно
     if (startDrag && !dragActive) {
@@ -178,6 +183,31 @@ function exitAirMove() {
     } else {
         log('Air: AIR_MOVE ended');
     }
+}
+
+function releaseAirPointerCapture() {
+    if (airSurfacePointerId !== null && airSurfaceCaptureTarget) {
+        try {
+            airSurfaceCaptureTarget.releasePointerCapture(airSurfacePointerId);
+        } catch {
+            /* ignore */
+        }
+    }
+    airSurfacePointerId = null;
+    airSurfaceCaptureTarget = null;
+}
+
+function cancelActiveAirGesture(reason: string) {
+    if (dragActive) {
+        sendAirPadIntent({ type: 'pointer.up', button: 'left' });
+        dragActive = false;
+        log(`Air: drag cancelled (${reason}, mouse up)`);
+    } else if (airState === 'AIR_MOVE') {
+        log(`Air: AIR_MOVE cancelled (${reason})`);
+    }
+
+    releaseAirPointerCapture();
+    resetAirState();
 }
 
 // ========== Pointer Handlers ==========
@@ -217,17 +247,10 @@ function airOnDown(e: PointerEvent) {
     airDownPos = { x: e.clientX, y: e.clientY };
     setAirStatus('WAIT_TAP_OR_HOLD');
 
-    // ===== ДВА ТАЙМЕРА =====
-    // Если это потенциальный drag — используем короткий таймер
-    // Иначе — обычный HOLD_DELAY
-
-    const holdDelay = pendingDragOnHold ? DRAG_HOLD_DELAY : HOLD_DELAY;
-
-    airMoveTimer = globalThis?.setTimeout?.(() => {
-        if (airState === 'WAIT_TAP_OR_HOLD') {
-            enterAirMove(pendingDragOnHold);
-        }
-    }, holdDelay) as any;
+    // PERF: AirPad is primarily a live mouse controller. Start sensors on the
+    // same user gesture instead of waiting for a hold timer; short taps still
+    // become clicks through the AIR_MOVE grace path in airOnUp().
+    enterAirMove(pendingDragOnHold);
 }
 
 function airOnUp(e: PointerEvent | null) {
@@ -589,38 +612,33 @@ export function initAirButton() {
             if (e.pointerId !== airSurfacePointerId) return;
             e.preventDefault();
 
-            if (airSurfacePointerId !== null && airSurfaceCaptureTarget) {
-                try {
-                    airSurfaceCaptureTarget.releasePointerCapture(airSurfacePointerId);
-                } catch {
-                    /* ignore */
-                }
-            }
-            airSurfacePointerId = null;
-            airSurfaceCaptureTarget = null;
+            releaseAirPointerCapture();
             airOnUp(e);
         });
 
         routingDoc.addEventListener('pointercancel', (e) => {
             if (e?.pointerId !== airSurfacePointerId && e?.pointerId != null) return;
 
-            if (airSurfacePointerId !== null && airSurfaceCaptureTarget) {
-                try {
-                    airSurfaceCaptureTarget.releasePointerCapture(airSurfacePointerId);
-                } catch {
-                    /* ignore */
-                }
-            }
-            airSurfacePointerId = null;
-            airSurfaceCaptureTarget = null;
+            cancelActiveAirGesture('pointercancel');
+        });
 
-            if (dragActive) {
-                sendAirPadIntent({ type: 'pointer.up', button: 'left' });
-                dragActive = false;
-                log('Air: drag cancelled (mouse up)');
-            }
+        airButton.addEventListener('lostpointercapture', (e) => {
+            if (e?.pointerId !== airSurfacePointerId && e?.pointerId != null) return;
+            cancelActiveAirGesture('lostpointercapture');
+        });
 
-            resetAirState();
+        routingDoc.addEventListener('visibilitychange', () => {
+            if (routingDoc.visibilityState === 'hidden') {
+                cancelActiveAirGesture('visibilitychange');
+            }
+        });
+
+        globalThis.addEventListener('pagehide', () => {
+            cancelActiveAirGesture('pagehide');
+        });
+
+        globalThis.addEventListener('blur', () => {
+            cancelActiveAirGesture('window-blur');
         });
     }
 

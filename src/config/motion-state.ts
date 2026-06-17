@@ -4,8 +4,8 @@
 
 import { MOTION_SEND_INTERVAL, MOTION_JITTER_EPS } from './config';
 import { sendAirPadIntent } from '../network/session';
+import { quantizeMotionFlush, type MotionAccum } from './motion-quantize';
 
-type MotionAccum = { dx: number; dy: number; dz: number };
 
 const accum: MotionAccum = { dx: 0, dy: 0, dz: 0 };
 
@@ -21,14 +21,14 @@ function scheduleFlush() {
     if (flushTimer !== null) return;
     flushTimer = globalThis?.setTimeout?.(() => {
         flushTimer = null;
-        if (accum.dx === 0 && accum.dy === 0 && accum.dz === 0) return;
+        const motion = quantizeMotionFlush(accum);
+        if (!motion) return;
         sendAirPadIntent({
             type: 'pointer.move',
-            dx: accum.dx,
-            dy: accum.dy,
-            dz: accum.dz,
+            dx: motion.dx,
+            dy: motion.dy,
+            dz: motion.dz,
         });
-        clearAccum();
     }, MOTION_SEND_INTERVAL) as any;
 }
 

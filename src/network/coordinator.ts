@@ -15,15 +15,17 @@ import {
 } from "./rails/packet-ws";
 import type { AirPadClipboardResult, AirPadIntent } from "./intents";
 import { invalidateAirpadTransportCredentials } from "../credential-cache-bridge";
-import { isClipboardHubBootstrapEnabled, isMaintainHubSocketConnectionEnabled } from "../config/config";
+import { isClipboardHubBootstrapEnabled, isMaintainHubSocketConnectionEnabled, syncAirpadRemoteConfigToNativeShell } from "../config/config";
 import {
     sendCoordinatorAct,
     sendCoordinatorAsk,
     sendCoordinatorRequest,
     onVoiceResult,
     isWSConnected,
+    markTransportDisconnected,
     reconnectTransportAfterLifecycleResume,
     refreshTransportConnectionStatus,
+    reconnectNativeCoordinatorTransport,
     shouldUseNativeCoordinatorTransport
 } from "./transport/websocket";
 import { getRemoteHost, getRemoteProtocol } from "../config/config";
@@ -37,11 +39,17 @@ export interface AirPadNetworkCoordinatorState {
     timestampMs: number;
 }
 
+export interface AirPadReconnectAfterConfigOptions {
+    delayMs?: number;
+    /** When true, skip a second native settings:patch (Save & Reconnect already synced). */
+    skipNativeSync?: boolean;
+}
+
 export interface AirPadNetworkCoordinator {
     init(button: HTMLElement | null): void;
     connect(): void;
     disconnect(): void;
-    reconnectAfterConfigChange(options?: { delayMs?: number }): void;
+    reconnectAfterConfigChange(options?: AirPadReconnectAfterConfigOptions): void;
     isConnected(): boolean;
     getRemoteHost(): string;
     getState(): AirPadNetworkCoordinatorState;
@@ -95,7 +103,7 @@ export const airPadNetworkCoordinator: AirPadNetworkCoordinator = {
             void refreshTransportConnectionStatus();
             return;
         }
-        reconnectTransportAfterLifecycleResume("airpad-connect");
+        connectPacketWsRail();
     },
 
     disconnect(): void {
@@ -103,16 +111,23 @@ export const airPadNetworkCoordinator: AirPadNetworkCoordinator = {
         disconnectPacketWsRail();
     },
 
-    reconnectAfterConfigChange(options?: { delayMs?: number }): void {
+    reconnectAfterConfigChange(options?: AirPadReconnectAfterConfigOptions): void {
         invalidateAirpadTransportCredentials();
         const delayMs = options?.delayMs ?? 80;
         void (async () => {
             await sleep(delayMs);
+            if (!options?.skipNativeSync) {
+                await syncAirpadRemoteConfigToNativeShell();
+            }
             if (shouldUseNativeCoordinatorTransport()) {
-                await refreshTransportConnectionStatus();
+                const connected = await reconnectNativeCoordinatorTransport();
+                if (connected) {
+                    await refreshTransportConnectionStatus();
+                } else {
+                    markTransportDisconnected();
+                }
                 return;
             }
-            // WHY: hub socket may already be connected to a stale host/route; connectWS() no-ops when connected.
             reconnectTransportAfterLifecycleResume("airpad-config");
         })().catch(() => {
             console.warn("[AirPad] reconnect after config failed");

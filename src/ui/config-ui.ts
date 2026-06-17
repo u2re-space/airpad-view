@@ -94,15 +94,32 @@ export function createConfigUI(): HTMLElement {
     };
 
     saveButton.addEventListener('click', () => {
+        if (saveButton.disabled) return;
+        saveButton.disabled = true;
+        const quickValue = quickConnectInput.value;
+        const token = authPassInput.value;
+
+        // WHY: close immediately — LAN `/lna-probe` sweeps and native IPC must not block the modal.
+        setAccessToken(token);
+        void setAirPadQuickConnectTarget(quickValue, { discover: false });
+        closeOverlay();
+        saveButton.disabled = false;
+
         void (async () => {
-            await setAirPadQuickConnectTarget(quickConnectInput.value);
-            setAccessToken(authPassInput.value);
-            const nativeSync = await syncAirpadRemoteConfigToNativeShell();
-            if (!nativeSync.ok) {
-                console.warn("[AirPad] native settings sync failed:", nativeSync.error);
+            try {
+                await setAirPadQuickConnectTarget(quickValue, {
+                    discover: true,
+                    probeTimeoutMs: 1200,
+                    maxProbeCandidates: 3
+                });
+                const nativeSync = await syncAirpadRemoteConfigToNativeShell();
+                if (!nativeSync.ok) {
+                    console.warn("[AirPad] native settings sync failed:", nativeSync.error);
+                }
+            } catch (error) {
+                console.warn("[AirPad] background save/reconnect failed:", error);
             }
-            reconnectAirPadSessionAfterConfigChange({ delayMs: 100 });
-            closeOverlay();
+            reconnectAirPadSessionAfterConfigChange({ delayMs: 80, skipNativeSync: true });
         })();
     });
 

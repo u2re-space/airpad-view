@@ -11,6 +11,7 @@ export {
     onServerClipboardUpdate,
     onVoiceResult,
     onWSConnectionChange,
+    markTransportDisconnected,
     reconnectTransportAfterLifecycleResume,
     refreshTransportConnectionStatus,
     sendCoordinatorAct,
@@ -18,5 +19,8 @@ export {
     sendCoordinatorRequest,
     sendWsBinary,
     refreshNativeCoordinatorStatus,
+    reconnectNativeCoordinatorTransport,
+    startNativeAirMouse,
+    stopNativeAirMouse,
     shouldUseNativeCoordinatorTransport
 } from "shared/transport/websocket";

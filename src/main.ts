@@ -10,7 +10,7 @@ import { initServiceWorker } from "core/pwa/sw-handling";
 
 //
 import { log, getBtnConnect, getAirpadDomRoot, queryAirpad, setAirpadDomRoot } from "./utils/utils";
-import { initAirPadSessionTransport, onAirPadSessionConnectionChange } from "./network/session";
+import { connectAirPadSession, initAirPadSessionTransport, onAirPadSessionConnectionChange } from "./network/session";
 import { initSpeechRecognition, initAiButton } from "./input/speech";
 import { initAirButton } from "./ui/air-button";
 import { initRelativeOrientation } from "./input/sensor/relative-orientation";
@@ -263,6 +263,7 @@ async function initAirpadApp(initToken: number | undefined, signal: AbortSignal,
 
     // Phase 1 — sync: DOM is in place; wire controls immediately (no idle wait).
     runInitializer("websocket button", () => initAirPadSessionTransport(getBtnConnect()));
+    runInitializer("websocket preconnect", () => connectAirPadSession());
     runInitializer("speech", () => initSpeechRecognition());
     runInitializer("AI button", () => initAiButton());
     runInitializer("Air button", () => initAirButton());

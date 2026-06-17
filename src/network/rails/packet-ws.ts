@@ -22,6 +22,7 @@ import {
 import type { AirPadClipboardResult, AirPadIntent } from "../intents";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
+const DEFAULT_AIRPAD_INPUT_TARGET = "L-192.168.0.110";
 
 /** WHY: legacy 8-byte frames carry no `nodes` — safe only on direct connect to the executor host. */
 const canUseBinaryAirpadTransport = (): boolean => !getAirPadDestinationId().trim();
@@ -142,7 +143,7 @@ export const onPacketWsClipboardUpdate = (handler: (text: string, meta?: { sourc
 
 const resolveInputRouteNodes = (): string[] | undefined => {
     const target = getAirPadDestinationId().trim();
-    return target ? [target] : undefined;
+    return [target || DEFAULT_AIRPAD_INPUT_TARGET];
 };
 
 export const sendPacketWsIntent = (intent: AirPadIntent): void => {

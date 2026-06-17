@@ -2,7 +2,7 @@
 // Конфигурация
 // =========================
 //
-// @see ../../../../projects/subsystem/runtime/airpad-cwsp-client-parity.ts — AirPad localStorage vs CWSAndroid ApplicationSettings (`cwsp.*`).
+// @see cwsp-shared/airpad-cwsp-client-parity — AirPad localStorage vs CWSAndroid ApplicationSettings (`cwsp.*`).
 // @see runtime/cwsp/endpoint/SPECIFICATION-v2.md — coordinator wire (docs only; not a code dependency).
 
 import type { AppSettings } from "com/config/SettingsTypes";
@@ -25,9 +25,13 @@ import {
     AIRPAD_REMOTE_CONFIG_STORAGE_KEY,
     CWSP_REMOTE_CONNECTION_JSON_VERSION,
     appSettingsToRemoteConnectionV1,
+    appSettingsShellToNativeExtras,
+    inferDirectHttpsOriginFromConnectInput,
+    normalizeWireNodeIdForWire,
     stringifyCwspRemoteConnectionV1,
+    wireNodeIdToBareConnectHost,
     type CwspRemoteConnectionV1
-} from "../../../../projects/subsystem/runtime/airpad-cwsp-client-parity";
+} from "cwsp-shared/airpad-cwsp-client-parity";
 
 export type { WireTargetEntry };
 
@@ -76,21 +80,7 @@ const normalizeWireTransport = (value: unknown): "ws" | undefined => {
 
 const looksLikeConnectUrl = looksLikeConnectHost;
 
-/** `L-192.168.0.110` → bare host when the suffix is a connectable IP/domain. */
-const wireNodeIdToBareConnectHost = (value: string): string | null => {
-    const trimmed = toTrimmedString(value);
-    if (!/^L-/i.test(trimmed)) return null;
-    const bare = trimmed.replace(/^L-/i, "").trim();
-    return looksLikeConnectHost(bare) ? bare : null;
-};
-
-const normalizeWireNodeId = (value: string): string => {
-    const trimmed = toTrimmedString(value);
-    if (!trimmed) return "";
-    if (/^L-/i.test(trimmed)) return `L-${trimmed.slice(2)}`;
-    if (/^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(trimmed)) return `L-${trimmed.split(":")[0]}`;
-    return trimmed;
-};
+const normalizeWireNodeId = normalizeWireNodeIdForWire;
 
 const joinUniqueUrls = (...values: Array<string | undefined>): string => {
     return Array.from(
@@ -379,15 +369,17 @@ function hydrateFromStored(stored: MigratedRemoteConfig): void {
 const stored = loadStoredRemoteConfig();
 hydrateFromStored(stored);
 
-/** Re-probe stored origins so stale `:8434`/`:443` rows track admin/public fallback binds. */
+/** Re-probe stored origins with explicit ports only (boot must not block on a full port sweep). */
 const rediscoverStoredRemoteUrls = async (): Promise<void> => {
+    const { hasExplicitConnectOrigin } = await import("cwsp-shared/cwsp-endpoint-resolve");
     const input: AirpadRemoteConfigInput = {};
-    if (remoteConfig.directUrl.trim()) {
-        const next = await resolveConnectHostToOrigin(remoteConfig.directUrl.trim());
+    const probeOpts = { timeoutMs: 1500, maxProbeCandidates: 2 };
+    if (remoteConfig.directUrl.trim() && hasExplicitConnectOrigin(remoteConfig.directUrl.trim())) {
+        const next = await resolveConnectHostToOrigin(remoteConfig.directUrl.trim(), probeOpts);
         if (next && next !== remoteConfig.directUrl.trim()) input.directUrl = next;
     }
-    if (remoteConfig.endpointUrl.trim()) {
-        const next = await resolveConnectHostToOrigin(remoteConfig.endpointUrl.trim());
+    if (remoteConfig.endpointUrl.trim() && hasExplicitConnectOrigin(remoteConfig.endpointUrl.trim())) {
+        const next = await resolveConnectHostToOrigin(remoteConfig.endpointUrl.trim(), probeOpts);
         if (next && next !== remoteConfig.endpointUrl.trim()) input.endpointUrl = next;
     }
     if (Object.keys(input).length) applyAirpadRemoteConfig(input, { persist: true });
@@ -401,7 +393,9 @@ const repairWireDestinationDirectUrl = async (): Promise<void> => {
     const fromQuick = wireNodeIdToBareConnectHost(remoteConfig.quickConnectValue);
     const bare = fromDest || fromQuick;
     if (!bare) return;
-    const origin = await resolveConnectHostToOrigin(bare);
+    const origin =
+        inferDirectHttpsOriginFromConnectInput(bare) ||
+        (await resolveConnectHostToOrigin(bare, { timeoutMs: 1500, maxProbeCandidates: 2 }));
     if (!origin || origin === remoteConfig.directUrl) return;
     remoteConfig.directUrl = origin;
     if (fromDest) {
@@ -781,7 +775,15 @@ export function getAirPadQuickConnectTarget(): string {
  * Quick-connect accepts either a target device id (routed through the Server-tab
  * endpoint URL) or a direct host/IP/domain (port auto-discovered when omitted).
  */
-export async function setAirPadQuickConnectTarget(value: string): Promise<void> {
+export async function setAirPadQuickConnectTarget(
+    value: string,
+    opts: {
+        /** When false, skip `/lna-probe` port sweep — use inferred `https://host:8434/` instead. */
+        discover?: boolean;
+        probeTimeoutMs?: number;
+        maxProbeCandidates?: number;
+    } = {}
+): Promise<void> {
     const trimmed = toTrimmedString(value);
     remoteConfig.quickConnectValue = trimmed;
     if (!trimmed) {
@@ -791,12 +793,32 @@ export async function setAirPadQuickConnectTarget(value: string): Promise<void> 
         persistRemoteConfig();
         return;
     }
+    const probeOpts = {
+        timeoutMs: opts.probeTimeoutMs ?? 1200,
+        maxProbeCandidates: opts.maxProbeCandidates
+    };
     const wireBare = wireNodeIdToBareConnectHost(trimmed);
     if (looksLikeConnectUrl(trimmed)) {
-        remoteConfig.directUrl = await resolveConnectHostToOrigin(trimmed);
+        const inferred = inferDirectHttpsOriginFromConnectInput(trimmed);
+        if (opts.discover === false) {
+            remoteConfig.directUrl = inferred || normalizeConnectHostInput(trimmed);
+        } else {
+            remoteConfig.directUrl =
+                (await resolveConnectHostToOrigin(trimmed, { discover: true, ...probeOpts })) ||
+                inferred ||
+                normalizeConnectHostInput(trimmed);
+        }
         remoteConfig.destinationId = "";
     } else if (wireBare) {
-        remoteConfig.directUrl = await resolveConnectHostToOrigin(wireBare);
+        const inferred = inferDirectHttpsOriginFromConnectInput(wireBare);
+        if (opts.discover === false) {
+            remoteConfig.directUrl = inferred || normalizeConnectHostInput(wireBare);
+        } else {
+            remoteConfig.directUrl =
+                inferred ||
+                (await resolveConnectHostToOrigin(wireBare, { discover: true, ...probeOpts })) ||
+                normalizeConnectHostInput(wireBare);
+        }
         remoteConfig.destinationId = normalizeWireNodeId(trimmed);
     } else {
         remoteConfig.destinationId = trimmed;
@@ -808,11 +830,25 @@ export async function setAirPadQuickConnectTarget(value: string): Promise<void> 
 
 /** Push AirPad popup settings into CWSAndroid prefs + trigger native {@code CwspRuntime.reloadSettings}. */
 export async function syncAirpadRemoteConfigToNativeShell(): Promise<{ ok: boolean; error?: string }> {
+    const NATIVE_SYNC_TIMEOUT_MS = 6000;
     try {
+        const { withTimeout } = await import("fest/core");
         const { isCapacitorCwsNativeShell, patchNativeUnifiedSettingsDetailed } = await import(
             "com/routing/native/cws-bridge"
         );
         if (!isCapacitorCwsNativeShell()) return { ok: true };
+        const nativeExtras = appSettingsShellToNativeExtras({
+            endpointUrl: remoteConfig.endpointUrl,
+            directUrl: remoteConfig.directUrl,
+            quickConnectValue: remoteConfig.quickConnectValue,
+            destinationId: remoteConfig.destinationId,
+            accessToken: remoteConfig.accessToken,
+            identificationToken: remoteConfig.identificationToken,
+            clientAccessToken: remoteConfig.clientAccessToken,
+            clientId: remoteConfig.clientId,
+            peerInstanceId: remoteConfig.peerInstanceId,
+            wireTransport: "ws"
+        });
         const patch: Record<string, unknown> = {
             core: {
                 endpointUrl: remoteConfig.endpointUrl || undefined,
@@ -825,10 +861,18 @@ export async function syncAirpadRemoteConfigToNativeShell(): Promise<{ ok: boole
                     clientAccessToken: remoteConfig.clientAccessToken || undefined
                 },
                 userKey: remoteConfig.identificationToken || undefined,
-                appClientId: remoteConfig.peerInstanceId || undefined
+                appClientId: remoteConfig.peerInstanceId || undefined,
+                ...nativeExtras
             }
         };
-        return patchNativeUnifiedSettingsDetailed(patch);
+        return await withTimeout(
+            patchNativeUnifiedSettingsDetailed(patch),
+            NATIVE_SYNC_TIMEOUT_MS,
+            "native settings sync timed out"
+        ).catch((error: unknown) => ({
+            ok: false,
+            error: String(error instanceof Error ? error.message : error)
+        }));
     } catch (error) {
         return { ok: false, error: String(error instanceof Error ? error.message : error) };
     }
@@ -862,6 +906,28 @@ const inferControlNodeIdFromUrl = (value: string): string => {
     }
 };
 
+/** Default desk when routing through gateway without an explicit destination. */
+const DEFAULT_DESK_ROUTE_TARGET = "L-192.168.0.110";
+
+const isGatewayWireNode = (value: string): boolean => {
+    const normalized = normalizeWireNodeId(value).toLowerCase();
+    return (
+        normalized === "l-192.168.0.200" ||
+        normalized === "l-45.147.121.152" ||
+        normalized.includes("gateway")
+    );
+};
+
+const isGatewayConnectOrigin = (value: string): boolean => {
+    const lower = String(value || "").trim().toLowerCase();
+    if (!lower) return false;
+    return (
+        lower.includes("192.168.0.200") ||
+        lower.includes("45.147.121.152") ||
+        lower.includes("gateway")
+    );
+};
+
 /**
  * Coordinator routing target for mouse/keyboard/clipboard acts and handshake hints.
  * Empty string means "execute on the peer we are socket-connected to" (direct mode).
@@ -872,13 +938,21 @@ export function getRemoteRouteTarget(): string {
     const direct = remoteConfig.directUrl.trim();
     const endpoint = remoteConfig.endpointUrl.trim();
     if (direct) {
+        // COMPAT: quick-connect historically accepted either the desk or the gateway.
+        // Gateway origins are routed sessions even if stored in directUrl.
+        if (isGatewayConnectOrigin(direct)) return DEFAULT_DESK_ROUTE_TARGET;
         // Gateway + direct target: forward control to the direct device, not the controller's self id.
         if (endpoint) return inferControlNodeIdFromUrl(direct);
         // Pure direct connect: empty nodes so the connected host handles input locally.
         return "";
     }
 
-    return coreSocketRouteTarget;
+    const fromCore = coreSocketRouteTarget.trim();
+    if (fromCore && !isGatewayWireNode(fromCore)) return fromCore;
+    if (endpoint && isGatewayConnectOrigin(endpoint)) {
+        return DEFAULT_DESK_ROUTE_TARGET;
+    }
+    return fromCore || "";
 }
 
 export function getAirPadDestinationId(): string {
