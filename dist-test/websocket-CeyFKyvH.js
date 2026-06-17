@@ -539,7 +539,7 @@ function lt() {
 		if (!e) return "";
 		let t = e.lastIndexOf(":");
 		return t > 0 && m(e.slice(t + 1)) ? e.slice(0, t) : e;
-	})(), F = c === "http" || c === "https" ? c : x === "443" || x === "8443" || x === "8444" ? "https" : x === "80" || x === "8080" || S() && ve && l(ve) && d(ve) ? "http" : location.protocol === "https:" ? "https" : "http", I = P, L = X(I) || I, ye = x || (F === "https" ? "8443" : "8080");
+	})(), F = c === "http" || c === "https" ? c : x === "443" || x === "8434" || x === "8444" ? "https" : x === "80" || x === "8080" || S() && ve && l(ve) && d(ve) ? "http" : location.protocol === "https:" ? "https" : "http", I = P, L = X(I) || I, ye = x || (F === "https" ? "8434" : "8080");
 	if (nt(`${F}://${L}:${ye}`, L), D && Ye(L) && !Ye(D) && Xe(D)) {
 		let e = X(D) || D;
 		nt(`${F}://${e}:${ye}`, e);
@@ -547,11 +547,11 @@ function lt() {
 	let z = F === "https" ? "http" : "https", be = {
 		http: ["8080", "80"],
 		https: [
-			"8443",
+			"8434",
 			"443",
 			"8444"
 		]
-	}, xe = location.port?.trim?.() || "", B = xe || (location.protocol === "https:" ? "443" : location.protocol === "http:" ? "80" : ""), Se = c === "http" ? ["http"] : c === "https" ? ["https"] : [F, z], Ce = (e) => e === "443" || e === "8443" || e === "8444", we = (e) => e === "80" || e === "8080", Te = (e, t) => {
+	}, xe = location.port?.trim?.() || "", B = xe || (location.protocol === "https:" ? "443" : location.protocol === "http:" ? "80" : ""), Se = c === "http" ? ["http"] : c === "https" ? ["https"] : [F, z], Ce = (e) => e === "443" || e === "8434" || e === "8444", we = (e) => e === "80" || e === "8080", Te = (e, t) => {
 		let n = [];
 		t && m(t) && !n.includes(t) && n.push(t), x && (e === "https" && Ce(x) && n.push(x), e === "http" && we(x) && n.push(x), c === e && !n.includes(x) && n.push(x));
 		for (let t of be[e]) n.push(t);
@@ -623,7 +623,7 @@ function lt() {
 		ie.length > 1 && (M = (M + 1) % ie.length);
 	};
 	E = !0, Z();
-	let Y = V(de || i || ""), Ze = ge || me || x || (F === "https" ? "8443" : "8080"), Qe = he, $e = Qe || Y || "", et = () => {
+	let Y = V(de || i || ""), Ze = ge || me || x || (F === "https" ? "8434" : "8080"), Qe = he, $e = Qe || Y || "", et = () => {
 		if (!Qe || !Y) return !0;
 		let e = Qe.trim().toLowerCase(), t = Y.trim().toLowerCase();
 		return !e || !t || e === t || e === `l-${t}`;

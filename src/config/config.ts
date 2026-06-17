@@ -17,6 +17,7 @@ import {
 } from "cwsp-shared/cws-client-wire-defaults";
 import {
     looksLikeConnectHost,
+    migrateLegacyCwspPublicPort,
     normalizeConnectHostInput,
     resolveConnectHostToOrigin
 } from "cwsp-shared/cwsp-endpoint-resolve";
@@ -75,6 +76,22 @@ const normalizeWireTransport = (value: unknown): "ws" | undefined => {
 
 const looksLikeConnectUrl = looksLikeConnectHost;
 
+/** `L-192.168.0.110` → bare host when the suffix is a connectable IP/domain. */
+const wireNodeIdToBareConnectHost = (value: string): string | null => {
+    const trimmed = toTrimmedString(value);
+    if (!/^L-/i.test(trimmed)) return null;
+    const bare = trimmed.replace(/^L-/i, "").trim();
+    return looksLikeConnectHost(bare) ? bare : null;
+};
+
+const normalizeWireNodeId = (value: string): string => {
+    const trimmed = toTrimmedString(value);
+    if (!trimmed) return "";
+    if (/^L-/i.test(trimmed)) return `L-${trimmed.slice(2)}`;
+    if (/^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(trimmed)) return `L-${trimmed.split(":")[0]}`;
+    return trimmed;
+};
+
 const joinUniqueUrls = (...values: Array<string | undefined>): string => {
     return Array.from(
         new Set(
@@ -85,7 +102,7 @@ const joinUniqueUrls = (...values: Array<string | undefined>): string => {
     ).join(", ");
 };
 
-/** If AirPad storage says `https://<this-host>:8443` but the app tab is `https://<this-host>/` (443), use tab origin. */
+/** If AirPad storage says `https://<this-host>:8434` but the app tab is `https://<this-host>/` (443), use tab origin. */
 
 /**
  * Detect public (non-loopback) tab origins so we can ignore dev-only loopback remote URLs in stored settings.
@@ -142,7 +159,7 @@ const rewriteEndpointToMatchHttpsTab = (originLike: string): string => {
         if (
             u.hostname === tab.hostname &&
             u.protocol === "https:" &&
-            u.port === "8443" &&
+            u.port === "8434" &&
             tab.protocol === "https:" &&
             (tab.port === "" || tab.port === "443")
         ) {
@@ -162,9 +179,19 @@ function loadStoredRemoteConfig(): MigratedRemoteConfig {
         if (!parsed || typeof parsed !== "object") return {};
 
         const source = parsed as Record<string, unknown>;
-        const sourceHost = toTrimmedString(source.host);
-        const sourceTunnelHost = toTrimmedString((source as { tunnelHost?: unknown }).tunnelHost);
+        const sourceHost = migrateLegacyCwspPublicPort(toTrimmedString(source.host));
+        const sourceTunnelHost = migrateLegacyCwspPublicPort(toTrimmedString((source as { tunnelHost?: unknown }).tunnelHost));
         const sourcePort = toTrimmedString((source as { port?: unknown }).port);
+        if (sourcePort === "8443" || sourcePort === "8343") {
+            (source as { port?: string }).port = "8434";
+        }
+        parsed.host = sourceHost;
+        if ((parsed as { tunnelHost?: string }).tunnelHost) {
+            (parsed as { tunnelHost?: string }).tunnelHost = sourceTunnelHost;
+        }
+        parsed.endpointUrl = migrateLegacyCwspPublicPort(toTrimmedString(parsed.endpointUrl));
+        parsed.directUrl = migrateLegacyCwspPublicPort(toTrimmedString(parsed.directUrl));
+        parsed.quickConnectValue = migrateLegacyCwspPublicPort(toTrimmedString(parsed.quickConnectValue));
 
         const hasLegacyConfig = sourcePort !== "" || sourceTunnelHost !== "";
         if (!hasLegacyConfig) {
@@ -352,7 +379,7 @@ function hydrateFromStored(stored: MigratedRemoteConfig): void {
 const stored = loadStoredRemoteConfig();
 hydrateFromStored(stored);
 
-/** Re-probe stored origins so stale `:8443`/`:443` rows track admin/public fallback binds. */
+/** Re-probe stored origins so stale `:8434`/`:443` rows track admin/public fallback binds. */
 const rediscoverStoredRemoteUrls = async (): Promise<void> => {
     const input: AirpadRemoteConfigInput = {};
     if (remoteConfig.directUrl.trim()) {
@@ -367,12 +394,35 @@ const rediscoverStoredRemoteUrls = async (): Promise<void> => {
 };
 void rediscoverStoredRemoteUrls();
 
+/** WHY: legacy quick-connect stored `L-192.168.0.110` as destination only — WS had no probe host. */
+const repairWireDestinationDirectUrl = async (): Promise<void> => {
+    if (remoteConfig.directUrl.trim()) return;
+    const fromDest = wireNodeIdToBareConnectHost(remoteConfig.destinationId);
+    const fromQuick = wireNodeIdToBareConnectHost(remoteConfig.quickConnectValue);
+    const bare = fromDest || fromQuick;
+    if (!bare) return;
+    const origin = await resolveConnectHostToOrigin(bare);
+    if (!origin || origin === remoteConfig.directUrl) return;
+    remoteConfig.directUrl = origin;
+    if (fromDest) {
+        remoteConfig.destinationId = normalizeWireNodeId(remoteConfig.destinationId);
+    } else if (fromQuick) {
+        remoteConfig.destinationId = normalizeWireNodeId(remoteConfig.quickConnectValue);
+    }
+    refreshRemoteHost();
+    persistRemoteConfig();
+};
+void repairWireDestinationDirectUrl();
+
 if (!toTrimmedString((stored as StoredRemoteConfig).peerInstanceId)) {
     remoteConfig.peerInstanceId = remoteConfig.peerInstanceId || createPeerInstanceId();
 }
 const storedAccessToken = toTrimmedString((stored as StoredRemoteConfig).accessToken);
 const storedLegacyAuthToken = toTrimmedString((stored as StoredRemoteConfig).authToken);
+const storedRaw = globalThis?.localStorage?.getItem?.(AIRPAD_REMOTE_CONFIG_STORAGE_KEY) ?? "";
+const hadLegacyPort8443 = /(?<![0-9]):8443(?![0-9])|:8343(?![0-9])/.test(storedRaw);
 if (
+    hadLegacyPort8443 ||
     (stored as MigratedRemoteConfig)._legacyMigrated === true ||
     !(stored as StoredRemoteConfig).peerInstanceId ||
     (storedLegacyAuthToken && !storedAccessToken) ||
@@ -741,15 +791,47 @@ export async function setAirPadQuickConnectTarget(value: string): Promise<void> 
         persistRemoteConfig();
         return;
     }
+    const wireBare = wireNodeIdToBareConnectHost(trimmed);
     if (looksLikeConnectUrl(trimmed)) {
         remoteConfig.directUrl = await resolveConnectHostToOrigin(trimmed);
         remoteConfig.destinationId = "";
+    } else if (wireBare) {
+        remoteConfig.directUrl = await resolveConnectHostToOrigin(wireBare);
+        remoteConfig.destinationId = normalizeWireNodeId(trimmed);
     } else {
         remoteConfig.destinationId = trimmed;
         remoteConfig.directUrl = "";
     }
     refreshRemoteHost();
     persistRemoteConfig();
+}
+
+/** Push AirPad popup settings into CWSAndroid prefs + trigger native {@code CwspRuntime.reloadSettings}. */
+export async function syncAirpadRemoteConfigToNativeShell(): Promise<{ ok: boolean; error?: string }> {
+    try {
+        const { isCapacitorCwsNativeShell, patchNativeUnifiedSettingsDetailed } = await import(
+            "com/routing/native/cws-bridge"
+        );
+        if (!isCapacitorCwsNativeShell()) return { ok: true };
+        const patch: Record<string, unknown> = {
+            core: {
+                endpointUrl: remoteConfig.endpointUrl || undefined,
+                ops: { directUrl: remoteConfig.directUrl || undefined },
+                network: { quickConnect: remoteConfig.quickConnectValue || undefined },
+                socket: {
+                    routeTarget: remoteConfig.destinationId || undefined,
+                    accessToken: remoteConfig.accessToken || undefined,
+                    selfId: remoteConfig.clientId || undefined,
+                    clientAccessToken: remoteConfig.clientAccessToken || undefined
+                },
+                userKey: remoteConfig.identificationToken || undefined,
+                appClientId: remoteConfig.peerInstanceId || undefined
+            }
+        };
+        return patchNativeUnifiedSettingsDetailed(patch);
+    } catch (error) {
+        return { ok: false, error: String(error instanceof Error ? error.message : error) };
+    }
 }
 
 export async function setRemoteHost(host: string): Promise<void> {

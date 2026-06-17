@@ -403,7 +403,7 @@ var x = [
       <form class="settings-panel-form" novalidate onsubmit="return false">
       <label class="field">
         <span>Server URL</span>
-        <input class="form-input" type="url" inputmode="url" autocomplete="off" placeholder="https://192.168.0.200:8443" data-field="core.endpointUrl" />
+        <input class="form-input" type="url" inputmode="url" autocomplete="off" placeholder="https://192.168.0.200:8434" data-field="core.endpointUrl" />
       </label>
       <label class="field">
         <span>Associated device / client ID</span>

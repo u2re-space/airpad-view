@@ -21,7 +21,7 @@ var e = [
 		useCoreIdentityForAirPad: !0,
 		allowInsecureTls: !1,
 		network: {
-			listenPortHttps: 8443,
+			listenPortHttps: 8434,
 			listenPortHttp: 8080,
 			bridgeEnabled: !0,
 			reconnectMs: 3e3,
@@ -48,7 +48,7 @@ var e = [
 			preferNativeWebsocket: !0
 		},
 		admin: {
-			httpsOrigin: "https://localhost:8443",
+			httpsOrigin: "https://localhost:8434",
 			httpOrigin: "http://localhost:8080",
 			path: "/"
 		},

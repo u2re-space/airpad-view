@@ -75,7 +75,7 @@ var o = "airpad.remote.connection.v1", s = (e) => typeof e == "number" ? Number.
 	if (!t || globalThis.location === void 0 || !globalThis.location.hostname) return t;
 	try {
 		let e = /^[a-z][a-z0-9+.-]*:\/\//i.test(t) ? t : `https://${t}`, n = new URL(e.endsWith("/") ? e : `${e.replace(/\/+$/, "")}/`), r = globalThis.location;
-		if (n.hostname === r.hostname && n.protocol === "https:" && n.port === "8443" && r.protocol === "https:" && (r.port === "" || r.port === "443")) return l(r.origin);
+		if (n.hostname === r.hostname && n.protocol === "https:" && n.port === "8434" && r.protocol === "https:" && (r.port === "" || r.port === "443")) return l(r.origin);
 	} catch {}
 	return t;
 };

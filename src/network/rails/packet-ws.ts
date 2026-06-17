@@ -5,7 +5,8 @@ import {
     encodeBinaryMouseDown,
     encodeBinaryMouseUp,
     encodeBinaryMove,
-    encodeBinaryScroll
+    encodeBinaryScroll,
+    decodeBinaryAirpadIntent
 } from "cwsp-shared/cwsp-binary-airpad";
 import {
     connectWS,
@@ -103,7 +104,7 @@ const trySendBinaryIntent = (intent: AirPadIntent): boolean => {
 };
 
 const sendKeyboardTap = async (key: string, modifier?: string[]): Promise<void> => {
-    await sendCoordinatorRequest("keyboard:tap", { key, modifier: modifier || [] }, resolveInputRouteNodes());
+    sendCoordinatorAct("keyboard:tap", { key, modifier: modifier || [] }, resolveInputRouteNodes());
 };
 
 const requestClipboardRead = async (): Promise<string> => {
@@ -160,16 +161,11 @@ export const sendPacketWsBinary = (buffer: ArrayBuffer | Uint8Array): void => {
     if (canUseBinaryAirpadTransport() && sendWsBinary(buffer)) {
         return;
     }
-    // Routed / gateway sessions need JSON coordinator acts with explicit `nodes`.
-    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer);
-    if (bytes.byteLength < 6) return;
-    const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    if (view.getUint8(4) !== 6) return;
-    sendPacketWsIntent({
-        type: "keyboard.binary",
-        codePoint: view.getUint32(0, true),
-        flags: view.getUint8(5)
-    });
+    const decoded = decodeBinaryAirpadIntent(buffer);
+    if (decoded) {
+        sendCoordinatorAct(decoded.what, decoded.payload, resolveInputRouteNodes());
+        return;
+    }
 };
 
 export const createPacketWsKeyboardMessage = (codePoint: number, flags = 0): ArrayBuffer => {

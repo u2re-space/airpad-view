@@ -7,6 +7,7 @@ import {
     getAccessToken,
     setAirPadQuickConnectTarget,
     setAccessToken,
+    syncAirpadRemoteConfigToNativeShell,
 } from '../config/config';
 import { reconnectAirPadSessionAfterConfigChange } from '../network/session';
 import { hideKeyboard } from '../input/keyboard/handlers';
@@ -65,7 +66,7 @@ export function createConfigUI(): HTMLElement {
                         placeholder="If the remote requires a control token for input/mouse"
                     />
                     <div class="field-hint">
-                        Target device ID, IP, or domain. Ports are auto-discovered (8443, 443, 8080, …). Auth pass is optional.
+                        Target device ID, IP, or domain. Ports are auto-discovered (8434, 443, 8080, …). Auth pass is optional.
                     </div>
                 </div>
             </div>
@@ -96,6 +97,10 @@ export function createConfigUI(): HTMLElement {
         void (async () => {
             await setAirPadQuickConnectTarget(quickConnectInput.value);
             setAccessToken(authPassInput.value);
+            const nativeSync = await syncAirpadRemoteConfigToNativeShell();
+            if (!nativeSync.ok) {
+                console.warn("[AirPad] native settings sync failed:", nativeSync.error);
+            }
             reconnectAirPadSessionAfterConfigChange({ delayMs: 100 });
             closeOverlay();
         })();

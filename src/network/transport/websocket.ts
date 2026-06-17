@@ -12,8 +12,11 @@ export {
     onVoiceResult,
     onWSConnectionChange,
     reconnectTransportAfterLifecycleResume,
+    refreshTransportConnectionStatus,
     sendCoordinatorAct,
     sendCoordinatorAsk,
     sendCoordinatorRequest,
-    sendWsBinary
+    sendWsBinary,
+    refreshNativeCoordinatorStatus,
+    shouldUseNativeCoordinatorTransport
 } from "shared/transport/websocket";

@@ -22,7 +22,9 @@ import {
     sendCoordinatorRequest,
     onVoiceResult,
     isWSConnected,
-    reconnectTransportAfterLifecycleResume
+    reconnectTransportAfterLifecycleResume,
+    refreshTransportConnectionStatus,
+    shouldUseNativeCoordinatorTransport
 } from "./transport/websocket";
 import { getRemoteHost, getRemoteProtocol } from "../config/config";
 
@@ -83,14 +85,17 @@ const snapshotState = (): AirPadNetworkCoordinatorState => {
 export const airPadNetworkCoordinator: AirPadNetworkCoordinator = {
     init(button: HTMLElement | null): void {
         initPacketWsRail(button);
+        if (shouldUseNativeCoordinatorTransport()) {
+            void refreshTransportConnectionStatus();
+        }
     },
 
     connect(): void {
-        if (!isWSConnected()) {
-            reconnectTransportAfterLifecycleResume("airpad-connect");
+        if (shouldUseNativeCoordinatorTransport()) {
+            void refreshTransportConnectionStatus();
             return;
         }
-        connectPacketWsRail();
+        reconnectTransportAfterLifecycleResume("airpad-connect");
     },
 
     disconnect(): void {
@@ -101,10 +106,15 @@ export const airPadNetworkCoordinator: AirPadNetworkCoordinator = {
     reconnectAfterConfigChange(options?: { delayMs?: number }): void {
         invalidateAirpadTransportCredentials();
         const delayMs = options?.delayMs ?? 80;
-        // WHY: hub socket may already be connected to a stale host/route; connectWS() no-ops when connected.
-        sleep(delayMs).then(() => {
+        void (async () => {
+            await sleep(delayMs);
+            if (shouldUseNativeCoordinatorTransport()) {
+                await refreshTransportConnectionStatus();
+                return;
+            }
+            // WHY: hub socket may already be connected to a stale host/route; connectWS() no-ops when connected.
             reconnectTransportAfterLifecycleResume("airpad-config");
-        }).catch(() => {
+        })().catch(() => {
             console.warn("[AirPad] reconnect after config failed");
         });
     },
