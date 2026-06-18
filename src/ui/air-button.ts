@@ -9,7 +9,7 @@ import { TAP_THRESHOLD, MOVE_TAP_THRESHOLD, SWIPE_THRESHOLD } from '../config/co
 import { onEnterAirMove as gyroOnEnterAirMove, ensureGyroscopeActive } from '../input/unfinised/gyroscope';
 import { onEnterAirMove as accelOnEnterAirMove, ensureAccelerometerActive } from '../input/unfinised/accelerometer';
 import { ensureAirMoveMotionSensors, resetRelativeOrientationRuntimeState } from '../input/sensor/relative-orientation';
-import { resetMotionAccum } from '../config/motion-state';
+import { resetMotionAccum, flushMotionNow } from '../config/motion-state';
 
 export type AirState = 'IDLE' | 'WAIT_TAP_OR_HOLD' | 'AIR_MOVE' | 'GESTURE_SWIPE';
 
@@ -41,6 +41,8 @@ let airSurfaceCaptureTarget: HTMLElement | null = null;
 
 const DOUBLE_TAP_WINDOW = 300;    // Окно между tap и следующим down для drag
 const TAP_MOVE_FORGIVENESS = Math.max(MOVE_TAP_THRESHOLD, 12);
+/** WHY: must exceed {@link TAP_THRESHOLD} so short taps never spin up gyro drift before click. */
+const AIR_MOVE_HOLD_MS = TAP_THRESHOLD + 80;
 const AIR_MOVE_TAP_GRACE_MS = TAP_THRESHOLD + 140;
 const AIR_MOVE_TAP_GRACE_MOVE = Math.max(MOVE_TAP_THRESHOLD, 16);
 
@@ -175,7 +177,7 @@ export function enterAirMove(startDrag: boolean = false) {
 function exitAirMove() {
     if (airState !== 'AIR_MOVE') return;
 
-    // Если был drag-режим, отпускаем кнопку мыши
+    // If was drag-режим, отпускаем кнопку мыши
     if (dragActive) {
         sendAirPadIntent({ type: 'pointer.up', button: 'left' });
         log('Air: DRAG ended (mouse up)');
@@ -183,6 +185,19 @@ function exitAirMove() {
     } else {
         log('Air: AIR_MOVE ended');
     }
+    setAirStatus('IDLE');
+}
+
+/** Freeze motion queue and flush last deltas before a discrete click (tap / context menu). */
+function prepareForDiscreteClick() {
+    if (airState === 'AIR_MOVE') {
+        exitAirMove();
+    } else {
+        setAirStatus('IDLE');
+    }
+    flushMotionNow();
+    resetMotionAccum();
+    resetRelativeOrientationRuntimeState();
 }
 
 function releaseAirPointerCapture() {
@@ -247,10 +262,12 @@ function airOnDown(e: PointerEvent) {
     airDownPos = { x: e.clientX, y: e.clientY };
     setAirStatus('WAIT_TAP_OR_HOLD');
 
-    // PERF: AirPad is primarily a live mouse controller. Start sensors on the
-    // same user gesture instead of waiting for a hold timer; short taps still
-    // become clicks through the AIR_MOVE grace path in airOnUp().
-    enterAirMove(pendingDragOnHold);
+    // WHY: defer sensors until hold exceeds tap window — prevents gyro drift during short taps.
+    airMoveTimer = globalThis?.setTimeout?.(() => {
+        airMoveTimer = null;
+        if (airState !== 'WAIT_TAP_OR_HOLD') return;
+        enterAirMove(pendingDragOnHold);
+    }, AIR_MOVE_HOLD_MS) as any;
 }
 
 function airOnUp(e: PointerEvent | null) {
@@ -277,7 +294,7 @@ function airOnUp(e: PointerEvent | null) {
         shouldClickFromAirMoveGrace = dt < AIR_MOVE_TAP_GRACE_MS && dist < AIR_MOVE_TAP_GRACE_MOVE;
     }
 
-    // Выход из режима AIR_MOVE
+    // Выход из режима AIR_MOVE (drag release if needed)
     if (airState === 'AIR_MOVE') {
         exitAirMove();
     }
@@ -301,9 +318,11 @@ function airOnUp(e: PointerEvent | null) {
                 // Если это был "второй tap" для drag, но пользователь не удержал —
                 // просто делаем обычный клик
                 if (!pendingDragOnHold) {
+                    prepareForDiscreteClick();
                     sendAirPadIntent({ type: 'pointer.click', button: 'left' });
                     log('Air: tap → click');
                 } else {
+                    prepareForDiscreteClick();
                     // Пользователь сделал tap-tap (без hold) — делаем double-click
                     sendAirPadIntent({ type: 'pointer.click', button: 'left', count: 2 });
                     log('Air: tap-tap → double-click');
@@ -314,6 +333,7 @@ function airOnUp(e: PointerEvent | null) {
     }
 
     if (shouldClickFromAirMoveGrace) {
+        prepareForDiscreteClick();
         sendAirPadIntent({ type: 'pointer.click', button: 'left' });
         log('Air: short hold + small move → click (grace)');
         wasCleanTap = true;
@@ -531,6 +551,7 @@ function initNeighborButton() {
                 const dist = Math.hypot(dx, dy);
 
                 if (dist < NEIGHBOR_MOVE_THRESHOLD) {
+                    prepareForDiscreteClick();
                     sendAirPadIntent({ type: 'pointer.click', button: 'right' });
                     log('Neighbor: tap → right-click (context menu)');
                 }

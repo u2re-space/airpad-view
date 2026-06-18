@@ -17,6 +17,23 @@ function clearAccum() {
     accum.dz = 0;
 }
 
+/** Send any debounced motion immediately (before discrete click so cursor matches intent). */
+export function flushMotionNow(): void {
+    if (flushTimer !== null) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+    }
+    const motion = quantizeMotionFlush(accum);
+    clearAccum();
+    if (!motion) return;
+    sendAirPadIntent({
+        type: "pointer.move",
+        dx: motion.dx,
+        dy: motion.dy,
+        dz: motion.dz
+    });
+}
+
 function scheduleFlush() {
     if (flushTimer !== null) return;
     flushTimer = globalThis?.setTimeout?.(() => {
