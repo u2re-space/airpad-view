@@ -41,6 +41,7 @@ let fallbackHandler: ((event: DeviceOrientationEvent) => void) | null = null;
 let lastQuat: [number, number, number, number] | null = null;
 let smoothedDelta: Vector3 = vec3Zero(); // smoothed small-angle delta
 let dynamicMaxStepPx: number = REL_ORIENT_MAX_STEP; // adaptive clamp radius in pixels/tick
+const REL_ORIENT_ZERO_DECAY_RATE = 42;
 
 export function resetRelativeOrientationRuntimeState() {
     lastQuat = null;
@@ -172,6 +173,14 @@ function handleReading(quat: number[], dt: number): Vector3 {
 
     // small-angle vector from delta quaternion
     const deltaVec = quatDeltaToAxisAngle(deltaQuat);
+    if (vec3IsNearZero(deltaVec, REL_ORIENT_DEADZONE)) {
+        const zeroDecayFactor = clamp01(expSmoothing(dt, REL_ORIENT_ZERO_DECAY_RATE));
+        smoothedDelta = vec3Smooth(smoothedDelta, vec3Zero(), zeroDecayFactor);
+        if (vec3IsNearZero(smoothedDelta, REL_ORIENT_DEADZONE)) {
+            smoothedDelta = vec3Zero();
+            return vec3Zero();
+        }
+    }
 
     // Update adaptive clamp from current (unsmoothed) deltaVec.
     const maxStepPx = clampPxRadiusFromDeltaVec(deltaVec, dt);
@@ -231,7 +240,7 @@ export async function requestMotionSensorPermission(): Promise<boolean> {
 const startDeviceOrientationFallback = (): void => {
     if (fallbackOrientationActive) return;
     let lastTs = performance.now();
-    let lastEuler = { x: 0, y: 0, z: 0 };
+    let lastEuler: { x: number; y: number; z: number } | null = null;
 
     fallbackHandler = (event: DeviceOrientationEvent) => {
             const now = performance.now();
@@ -242,6 +251,10 @@ const startDeviceOrientationFallback = (): void => {
             const beta = Number(event.beta ?? 0);
             const gamma = Number(event.gamma ?? 0);
             const current = { x: beta, y: gamma, z: alpha };
+            if (!lastEuler) {
+                lastEuler = current;
+                return;
+            }
             const deltaDeg = {
                 x: current.x - lastEuler.x,
                 y: current.y - lastEuler.y,
@@ -312,6 +325,7 @@ export function initRelativeOrientation() {
         if (aiModeActive) return;
 
         // Accumulate into unified motion queue
+        if (vec3IsNearZero(mapped, MOTION_JITTER_EPS)) return;
         enqueueMotion(mapped.x, mapped.y, mapped.z);
     });
 
