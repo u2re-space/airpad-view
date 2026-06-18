@@ -19,7 +19,8 @@ import {
     looksLikeConnectHost,
     migrateLegacyCwspPublicPort,
     normalizeConnectHostInput,
-    resolveConnectHostToOrigin
+    resolveConnectHostToOrigin,
+    splitConnectHostList
 } from "cwsp-shared/cwsp-endpoint-resolve";
 import {
     AIRPAD_REMOTE_CONFIG_STORAGE_KEY,
@@ -125,10 +126,7 @@ const urlHostIsLoopback = (urlStr: string): boolean => {
 const sanitizeLoopbackRemoteOnPublicOrigin = (value: string): string => {
     const trimmed = value.trim();
     if (!trimmed || !isBrowserPublicOrigin()) return trimmed;
-    const parts = trimmed
-        .split(",")
-        .map((p) => p.trim())
-        .filter(Boolean);
+    const parts = splitConnectHostList(trimmed);
     if (!parts.length) return trimmed;
     const allLoopback = parts.every(urlHostIsLoopback);
     if (!allLoopback) return trimmed;
