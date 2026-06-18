@@ -23,6 +23,25 @@ import type { AirPadClipboardResult, AirPadIntent } from "../intents";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 const DEFAULT_AIRPAD_INPUT_TARGET = "L-192.168.0.110";
+const CLIPBOARD_CHORD_SETTLE_MS = 140;
+
+/** Act/ask replies may be a raw string or `{ value, text, ok, handled }` from local-dispatch. */
+const extractCoordinatorClipboardText = (result: unknown): string => {
+    if (typeof result === "string") return result;
+    if (result == null) return "";
+    if (typeof result !== "object") return String(result);
+    const record = result as Record<string, unknown>;
+    if (typeof record.text === "string") return record.text;
+    if (typeof record.value === "string") return record.value;
+    const nested = record.result ?? record.payload ?? record.data;
+    if (typeof nested === "string") return nested;
+    if (nested && typeof nested === "object") {
+        const inner = nested as Record<string, unknown>;
+        if (typeof inner.text === "string") return inner.text;
+        if (typeof inner.value === "string") return inner.value;
+    }
+    return "";
+};
 
 /** WHY: legacy 8-byte frames carry no `nodes` — safe only on direct connect to the executor host. */
 const canUseBinaryAirpadTransport = (): boolean => !getAirPadDestinationId().trim();
@@ -104,13 +123,17 @@ const trySendBinaryIntent = (intent: AirPadIntent): boolean => {
     }
 };
 
-const sendKeyboardTap = async (key: string, modifier?: string[]): Promise<void> => {
-    sendCoordinatorAct("keyboard:tap", { key, modifier: modifier || [] }, resolveInputRouteNodes());
+const sendKeyboardChord = async (key: string, modifier: string[] = ["ctrl"]): Promise<void> => {
+    await sendCoordinatorRequest(
+        "keyboard:tap",
+        { key, modifier },
+        resolveInputRouteNodes(),
+    );
 };
 
 const requestClipboardRead = async (): Promise<string> => {
-    const text = await sendCoordinatorRequest("clipboard:get", {}, resolveInputRouteNodes());
-    return typeof text === "string" ? text : String(text || "");
+    const result = await sendCoordinatorRequest("clipboard:get", {}, resolveInputRouteNodes());
+    return extractCoordinatorClipboardText(result);
 };
 
 const requestClipboardWrite = async (text: string): Promise<void> => {
@@ -190,8 +213,8 @@ export const requestPacketWsClipboardCopy = async (): Promise<AirPadClipboardRes
         return { ok: false, error: "Remote clipboard bridge disabled in Settings → Server → Embedded shell." };
     }
     try {
-        await sendKeyboardTap("c", ["control"]);
-        await sleep(60);
+        await sendKeyboardChord("c", ["ctrl"]);
+        await sleep(CLIPBOARD_CHORD_SETTLE_MS);
         return await requestPacketWsClipboardRead();
     } catch (error: any) {
         return { ok: false, error: error?.error || error?.message || String(error) };
@@ -203,8 +226,8 @@ export const requestPacketWsClipboardCut = async (): Promise<AirPadClipboardResu
         return { ok: false, error: "Remote clipboard bridge disabled in Settings → Server → Embedded shell." };
     }
     try {
-        await sendKeyboardTap("x", ["control"]);
-        await sleep(60);
+        await sendKeyboardChord("x", ["ctrl"]);
+        await sleep(CLIPBOARD_CHORD_SETTLE_MS);
         return await requestPacketWsClipboardRead();
     } catch (error: any) {
         return { ok: false, error: error?.error || error?.message || String(error) };
@@ -215,12 +238,26 @@ export const requestPacketWsClipboardPaste = async (text: string): Promise<AirPa
     if (!isShellRemoteClipboardBridgeEnabled()) {
         return { ok: false, error: "Remote clipboard bridge disabled in Settings → Server → Embedded shell." };
     }
+    const normalized = String(text ?? "");
+    if (!normalized.trim()) {
+        return { ok: false, error: "empty clipboard text" };
+    }
+    const nodes = resolveInputRouteNodes();
     try {
-        await requestClipboardWrite(text);
-        await sleep(20);
-        await sendKeyboardTap("v", ["control"]);
+        // WHY: phone paste-back after copy-from-remote matches desk clipboard echo suppress;
+        // keyboard:type injects into the focused remote field without that dedupe path.
+        await sendCoordinatorRequest("keyboard:type", { text: normalized }, nodes);
         return { ok: true };
-    } catch (error: any) {
-        return { ok: false, error: error?.error || error?.message || String(error) };
+    } catch (typeError: any) {
+        try {
+            await requestClipboardWrite(normalized);
+            await sleep(CLIPBOARD_CHORD_SETTLE_MS);
+            await sendKeyboardChord("v", ["ctrl"]);
+            return { ok: true };
+        } catch (pasteError: any) {
+            const message =
+                pasteError?.error || pasteError?.message || typeError?.error || typeError?.message || String(pasteError);
+            return { ok: false, error: message };
+        }
     }
 };

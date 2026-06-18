@@ -42,15 +42,24 @@ export const getLogEl = () => byId('logContainer'); // Changed to logContainer
 export const getVoiceTextEl = () => byId('voiceText');
 export const getVkStatusEl = () => byId('vkStatus');
 
-export const getBtnConnect = () => byId('btnConnect');
+export const getBtnConnect = () =>
+    byId('btnConnect') ?? queryAirpad('cw-airpad-action-rail #btnConnect');
 export const getAirButton = () => byId('airButton');
 export const getAiButton = () => byId('aiButton');
 export const getAirNeighborButton = () => byId<HTMLButtonElement>('airNeighborButton');
 
-export const getBtnCut = () => byId<HTMLButtonElement>('btnCut');
-export const getBtnCopy = () => byId<HTMLButtonElement>('btnCopy');
-export const getBtnPaste = () => byId<HTMLButtonElement>('btnPaste');
-export const getClipboardPreviewEl = () => byId('clipboardPreview');
+export const getBtnCut = () =>
+    byId<HTMLButtonElement>('btnCut') ??
+    queryAirpad<HTMLButtonElement>('cw-airpad-action-rail #btnCut');
+export const getBtnCopy = () =>
+    byId<HTMLButtonElement>('btnCopy') ??
+    queryAirpad<HTMLButtonElement>('cw-airpad-action-rail #btnCopy');
+export const getBtnPaste = () =>
+    byId<HTMLButtonElement>('btnPaste') ??
+    queryAirpad<HTMLButtonElement>('cw-airpad-action-rail #btnPaste');
+export const getClipboardPreviewEl = () =>
+    byId('clipboardPreview') ??
+    queryAirpad('cw-airpad-action-rail #clipboardPreview');
 
 // Backward compatibility - return current values or null
 export const wsStatusEl = null; // Will be accessed via getter

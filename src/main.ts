@@ -18,7 +18,7 @@ import { stopRelativeOrientation } from "./input/sensor/relative-orientation";
 import { initGyro } from "./input/unfinised/gyroscope";
 import { initAccelerometer } from "./input/unfinised/accelerometer";
 import { initVirtualKeyboard, setRemoteKeyboardEnabled } from "./input/virtual-keyboard";
-import { teardownKeyboardDismissListeners } from "./input/keyboard/handlers";
+import { teardownKeyboardDismissListeners, forceHideNavigatorVirtualKeyboard } from "./input/keyboard/handlers";
 import { initClipboardToolbar } from "./ui/clipboard-toolbar";
 import { showConfigUI, teardownAirpadConfigOverlay } from "./ui/config-ui";
 import { resetClipboardToolbarState } from "./ui/clipboard-toolbar";
@@ -311,5 +311,25 @@ async function initAirpadApp(initToken: number | undefined, signal: AbortSignal,
         globalThis.requestIdleCallback(deferServiceWorker, { timeout: 6000 });
     } else {
         globalThis.setTimeout(deferServiceWorker, 2500);
+    }
+
+    //
+    globalThis?.addEventListener?.("popstate", () => {
+        forceHideNavigatorVirtualKeyboard();
+    });
+
+    globalThis?.addEventListener?.("hashchange", () => {
+        forceHideNavigatorVirtualKeyboard();
+    });
+
+    // 2. Lock screen orientation
+    if (globalThis?.screen?.orientation && typeof globalThis?.screen?.orientation?.lock === "function") {
+        //@ts-ignore
+        globalThis?.screen?.orientation?.lock('natural').then(() => {
+            console.log("Locked to portrait successfully.");
+        }).catch((err: unknown) => {
+            //@ts-ignore
+            console.warn("Orientation lock failed:", err);
+        });
     }
 }

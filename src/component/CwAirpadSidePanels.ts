@@ -60,10 +60,10 @@ export class CwAirpadSidePanelsElement extends HTMLElement {
         if (this.querySelector("#logOverlay")) return;
         this.innerHTML = `
             <div class="side-actions-row" role="group" aria-label="Panels">
-                <button type="button" id="hintToggle" name="airpad-hints-toggle" class="side-log-toggle side-hint-toggle" aria-controls="hintOverlay" aria-expanded="false">Hints</button>
-                <button type="button" id="logToggle" name="airpad-log-toggle" class="side-log-toggle" aria-controls="logOverlay" aria-expanded="false">Логи</button>
-                <button type="button" id="btnMotionReset" name="airpad-motion-reset" class="side-log-toggle side-fix-toggle" aria-label="Reset motion calibration">Fix</button>
-                <button type="button" id="btnReload" name="airpad-reload" class="side-log-toggle side-reload-toggle" aria-label="Reload">Reload</button>
+                <button type="button" id="hintToggle" name="airpad-hints-toggle" tabindex="-1" data-no-virtual-keyboard="true" class="side-log-toggle side-hint-toggle" aria-controls="hintOverlay" aria-expanded="false">Hints</button>
+                <button type="button" id="logToggle" name="airpad-log-toggle" tabindex="-1" data-no-virtual-keyboard="true" class="side-log-toggle" aria-controls="logOverlay" aria-expanded="false">Логи</button>
+                <button type="button" id="btnMotionReset" name="airpad-motion-reset" tabindex="-1" data-no-virtual-keyboard="true" class="side-log-toggle side-fix-toggle" aria-label="Reset motion calibration">Fix</button>
+                <button type="button" id="btnReload" name="airpad-reload" tabindex="-1" data-no-virtual-keyboard="true" class="side-log-toggle side-reload-toggle" aria-label="Reload">Reload</button>
             </div>
 
             <div id="logOverlay" class="log-overlay" aria-hidden="true">

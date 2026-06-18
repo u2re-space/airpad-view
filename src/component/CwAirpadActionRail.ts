@@ -49,12 +49,12 @@ export class CwAirpadActionRailElement extends HTMLElement {
         if (this.querySelector("#clipboardToolbar")) return;
         this.innerHTML = `
             <div class="bottom-toolbar" id="clipboardToolbar" aria-label="Clipboard actions">
-                <button type="button" id="btnCut" name="airpad-clipboard-cut" class="toolbar-btn" aria-label="Cut (Ctrl+X)">✂️</button>
-                <button type="button" id="btnCopy" name="airpad-clipboard-copy" class="toolbar-btn" aria-label="Copy (Ctrl+C)">📋</button>
-                <button type="button" id="btnPaste" name="airpad-clipboard-paste" class="toolbar-btn" aria-label="Paste (Ctrl+V)">📥</button>
-                <button type="button" id="btnConnect" name="airpad-ws-connect" class="toolbar-btn connect-fab connect-fab--ws">WS ↔</button>
-                <button type="button" id="btnAdminDoor" name="airpad-admin-door" class="toolbar-btn toolbar-btn--admin-door" aria-label="Open server admin (HTTPS)" title="Server admin (HTTPS :8434)">ADM</button>
-                <button type="button" id="btnConfig" name="airpad-config" class="toolbar-btn" aria-label="Configuration" title="Configuration">⚙️</button>
+                <button type="button" id="btnCut" name="airpad-clipboard-cut" tabindex="-1" data-no-virtual-keyboard="true" class="toolbar-btn" aria-label="Cut (Ctrl+X)">✂️</button>
+                <button type="button" id="btnCopy" name="airpad-clipboard-copy" tabindex="-1" data-no-virtual-keyboard="true" class="toolbar-btn" aria-label="Copy (Ctrl+C)">📋</button>
+                <button type="button" id="btnPaste" name="airpad-clipboard-paste" tabindex="-1" data-no-virtual-keyboard="true" class="toolbar-btn" aria-label="Paste (Ctrl+V)">📥</button>
+                <button type="button" id="btnConnect" name="airpad-ws-connect" tabindex="-1" data-no-virtual-keyboard="true" class="toolbar-btn connect-fab connect-fab--ws">WS ↔</button>
+                <button type="button" id="btnAdminDoor" name="airpad-admin-door" tabindex="-1" data-no-virtual-keyboard="true" class="toolbar-btn toolbar-btn--admin-door" aria-label="Open server admin (HTTPS)" title="Server admin (HTTPS :8434)">ADM</button>
+                <button type="button" id="btnConfig" name="airpad-config" tabindex="-1" data-no-virtual-keyboard="true" class="toolbar-btn" aria-label="Configuration" title="Configuration">⚙️</button>
             </div>
             <div id="clipboardPreview" class="clipboard-preview" aria-live="polite"></div>
         `;

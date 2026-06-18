@@ -20,6 +20,90 @@ const DEBUG_KEYBOARD_INPUT = false;
 /** AbortController for document-level dismiss listeners (scoped to airpad owner document). */
 let keyboardDismissAbort: AbortController | null = null;
 
+type NavigatorWithVk = Navigator & { virtualKeyboard?: { hide?: () => void } };
+
+/** Hide OS virtual keyboard via navigator API (safe no-op when unsupported). */
+export function forceHideNavigatorVirtualKeyboard(): void {
+    const vk = (globalThis.navigator as NavigatorWithVk)?.virtualKeyboard;
+    try {
+        vk?.hide?.();
+    } catch (error) {
+        console.warn(error);
+    }
+
+    const toggleButton = getToggleButton();
+    if (toggleButton instanceof HTMLElement) {
+        toggleButton.setAttribute("virtualkeyboardpolicy", "manual");
+        if (toggleButton.isContentEditable) {
+            toggleButton.contentEditable = "false";
+        }
+    }
+
+    try {
+        vk?.hide?.();
+    } catch (error) {
+        console.warn(error);
+    }
+}
+
+/** Blur airpad fields that keep the OS keyboard attached (toggle CE, inputs). */
+function blurAirpadKeyboardFocus(): void {
+    const doc = getAirpadOwnerDocument();
+    const active = doc?.activeElement;
+    if (!(active instanceof HTMLElement)) return;
+    if (!active.closest(".view-cwsp")) return;
+    if (
+        active.matches(
+            "[contenteditable=\"true\"], input, textarea, select, .keyboard-toggle",
+        )
+    ) {
+        active.blur();
+    }
+}
+
+/**
+ * Dismiss OS + overlay keyboards before Air/control gestures.
+ * WHY: Android WebView keeps VK open when focus stays on the contenteditable toggle.
+ */
+export function dismissKeyboardForControlInteraction(): void {
+    forceHideNavigatorVirtualKeyboard();
+    blurAirpadKeyboardFocus();
+    hideKeyboard();
+}
+
+const CONTROL_DISMISS_SELECTOR =
+    ".big-button, .neighbor-button, .toolbar-btn:not(.keyboard-toggle), .side-log-toggle, .ghost-btn, [data-no-virtual-keyboard=\"true\"]";
+
+const KEYBOARD_UI_SELECTOR = ".virtual-keyboard-container, .keyboard-key";
+
+function shouldDismissKeyboardForTarget(el: HTMLElement | null | undefined): boolean {
+    if (!el) return false;
+    if (el.closest(".keyboard-toggle")) return false;
+    if (el.closest(KEYBOARD_UI_SELECTOR)) return false;
+    // WHY: clipboard toolbar needs a stable pointer/click chain for navigator.clipboard + remote acts.
+    if (el.closest("#clipboardToolbar, .bottom-toolbar")) return false;
+    return Boolean(el.closest(CONTROL_DISMISS_SELECTOR));
+}
+
+/** Capture pointerdown on control surfaces so open VK does not steal Air gestures. */
+export function setupControlInteractionKeyboardDismiss(root: HTMLElement, signal: AbortSignal): void {
+    const mount =
+        root.closest?.(".view-cwsp") ?? root.querySelector?.(".view-cwsp") ?? root;
+    if (!(mount instanceof HTMLElement)) return;
+
+    const doc = getAirpadOwnerDocument();
+    if (!doc) return;
+
+    const onPointerDown = (e: Event): void => {
+        const el = eventTargetElement(e);
+        if (!shouldDismissKeyboardForTarget(el)) return;
+        dismissKeyboardForControlInteraction();
+    };
+
+    mount.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true, signal });
+    doc.addEventListener("pointerdown", onPointerDown, { capture: true, passive: true, signal });
+}
+
 /** Remove focus/pointer dismiss listeners (call on Airpad unmount). */
 export function teardownKeyboardDismissListeners(): void {
     try {
@@ -37,7 +121,7 @@ const keyboardContainerUiBound = new WeakSet<Element>();
 /** Outside taps must not close the keyboard when interacting with these regions. */
 const KEYBOARD_STAYS_OPEN_MATCHES = 'input,textarea,select,[contenteditable="true"]';
 const KEYBOARD_STAYS_OPEN_CLOSEST =
-    '.config-overlay, .virtual-keyboard-container, .keyboard-toggle, .view-cwsp, .view-cwsp button, .view-cwsp .big-button, .view-cwsp .neighbor-button, .log-overlay.open, .log-panel, .airpad-config-overlay';
+    '.config-overlay, .virtual-keyboard-container, .keyboard-toggle, .log-overlay.open, .log-panel, .airpad-config-overlay';
 
 function isKeyboardStayOpenTarget(el: HTMLElement | null | undefined): boolean {
     if (!el) return false;
@@ -886,6 +970,14 @@ export function setupKeyboardUIHandlers() {
     teardownKeyboardDismissListeners();
     keyboardDismissAbort = new AbortController();
     const { signal } = keyboardDismissAbort;
+
+    const dismissRoot =
+        keyboardElement.closest?.(".view-cwsp") ??
+        doc.querySelector?.(".view-cwsp") ??
+        keyboardElement;
+    if (dismissRoot instanceof HTMLElement) {
+        setupControlInteractionKeyboardDismiss(dismissRoot, signal);
+    }
 
     doc.addEventListener(
         'focusout',

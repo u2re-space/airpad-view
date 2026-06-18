@@ -872,6 +872,22 @@
         cursor: pointer;
         position: relative;
         overflow: hidden;
+        user-select: none;
+        -webkit-user-select: none;
+        -moz-user-select: none;
+        -ms-user-select: none;
+        user-drag: none;
+        -webkit-user-drag: none;
+        -moz-user-drag: none;
+        -ms-user-drag: none;
+        -o-user-drag: none;
+        user-modify: none;
+        -webkit-user-modify: none;
+        -moz-user-modify: none;
+        -ms-user-modify: none;
+        -o-user-modify: none;
+        user-select: none;
+        touch-action: none;
 
         &::before {
             content: '';
@@ -936,6 +952,25 @@
             background: radial-gradient(ellipse 80% 60% at 50% 20%, var(--error), color-mix(in srgb, var(--error), black 10%));
             color: var(--on-error);
             box-shadow: var(--elevation-4), 0 0 0 6px color-mix(in srgb, var(--error), transparent 15%);
+        }
+
+        & * {
+            user-select: none;
+            -webkit-user-select: none;
+            -moz-user-select: none;
+            -ms-user-select: none;
+            user-drag: none;
+            -webkit-user-drag: none;
+            -moz-user-drag: none;
+            -ms-user-drag: none;
+            -o-user-drag: none;
+            pointer-events: none;
+            touch-action: none;
+            user-modify: none;
+            -webkit-user-modify: none;
+            -moz-user-modify: none;
+            -ms-user-modify: none;
+            -o-user-modify: none;
         }
     }
 
