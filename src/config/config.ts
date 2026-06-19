@@ -25,10 +25,19 @@ import {
 import {
     AIRPAD_REMOTE_CONFIG_STORAGE_KEY,
     CWSP_REMOTE_CONNECTION_JSON_VERSION,
+    DEFAULT_DESK_WIRE_NODE_ID,
     appSettingsToRemoteConnectionV1,
     appSettingsShellToNativeExtras,
     inferDirectHttpsOriginFromConnectInput,
+    isAssociableFleetWireNodeId,
+    isGatewayHttpsOrigin,
     normalizeWireNodeIdForWire,
+    isGuestPrivateLanIpv4,
+    isOffHomeFleetNetwork,
+    resolveWanGatewayConnectOrigin,
+    sanitizeFleetRouteTarget,
+    sanitizeFleetSelfWireNodeId,
+    shouldPreferWanGatewayForAirpad,
     stringifyCwspRemoteConnectionV1,
     wireNodeIdToBareConnectHost,
     type CwspRemoteConnectionV1
@@ -227,7 +236,24 @@ const readGlobalAirpadValue = (keys: string[]): string => {
     return "";
 };
 
+const scrubStaleGuestAirpadIdentity = (): void => {
+    remoteConfig.clientId = sanitizeFleetSelfWireNodeId(remoteConfig.clientId);
+    const sanitizedDest = sanitizeFleetRouteTarget(
+        remoteConfig.destinationId,
+        remoteConfig.endpointUrl
+    );
+    if (sanitizedDest) {
+        remoteConfig.destinationId = sanitizedDest;
+    } else if (
+        remoteConfig.destinationId &&
+        !isAssociableFleetWireNodeId(remoteConfig.destinationId)
+    ) {
+        remoteConfig.destinationId = "";
+    }
+};
+
 function persistRemoteConfig(): void {
+    scrubStaleGuestAirpadIdentity();
     try {
         const payload: CwspRemoteConnectionV1 = {
             v: CWSP_REMOTE_CONNECTION_JSON_VERSION,
@@ -344,14 +370,18 @@ function hydrateFromStored(stored: MigratedRemoteConfig): void {
         toTrimmedString((stored as StoredRemoteConfig).accessToken) ||
         toTrimmedString((stored as StoredRemoteConfig).authToken) ||
         "";
-    remoteConfig.destinationId =
-        toTrimmedString((stored as StoredRemoteConfig).destinationId) ||
-        legacyRouteTarget;
     remoteConfig.quickConnectValue =
         quickConnectValue ||
-        remoteConfig.destinationId ||
+        toTrimmedString((stored as StoredRemoteConfig).destinationId) ||
+        legacyRouteTarget ||
         remoteConfig.directUrl;
-    remoteConfig.clientId = toTrimmedString((stored as StoredRemoteConfig).clientId);
+    remoteConfig.clientId = sanitizeFleetSelfWireNodeId((stored as StoredRemoteConfig).clientId);
+    const rawDestination =
+        toTrimmedString((stored as StoredRemoteConfig).destinationId) ||
+        legacyRouteTarget;
+    remoteConfig.destinationId =
+        sanitizeFleetRouteTarget(rawDestination, remoteConfig.endpointUrl) ||
+        (isAssociableFleetWireNodeId(rawDestination) ? normalizeWireNodeId(rawDestination) : "");
     const storedPeer = toTrimmedString((stored as StoredRemoteConfig).peerInstanceId);
     if (storedPeer) {
         remoteConfig.peerInstanceId = storedPeer;
@@ -366,9 +396,14 @@ function hydrateFromStored(stored: MigratedRemoteConfig): void {
 
 const stored = loadStoredRemoteConfig();
 hydrateFromStored(stored);
+scrubStaleGuestAirpadIdentity();
+if (remoteConfig.clientId || remoteConfig.destinationId) {
+    persistRemoteConfig();
+}
 
 /** Re-probe stored origins with explicit ports only (boot must not block on a full port sweep). */
 const rediscoverStoredRemoteUrls = async (): Promise<void> => {
+    if (shouldPreferWanGatewayForAirpad(remoteConfig.endpointUrl)) return;
     const { hasExplicitConnectOrigin } = await import("cwsp-shared/cwsp-endpoint-resolve");
     const input: AirpadRemoteConfigInput = {};
     const probeOpts = { timeoutMs: 1500, maxProbeCandidates: 2 };
@@ -387,6 +422,7 @@ void rediscoverStoredRemoteUrls();
 /** WHY: legacy quick-connect stored `L-192.168.0.110` as destination only — WS had no probe host. */
 const repairWireDestinationDirectUrl = async (): Promise<void> => {
     if (remoteConfig.directUrl.trim()) return;
+    if (shouldPreferWanGatewayForAirpad(remoteConfig.endpointUrl)) return;
     const fromDest = wireNodeIdToBareConnectHost(remoteConfig.destinationId);
     const fromQuick = wireNodeIdToBareConnectHost(remoteConfig.quickConnectValue);
     const bare = fromDest || fromQuick;
@@ -475,12 +511,20 @@ export function applyAirpadRemoteConfig(input: AirpadRemoteConfigInput, options?
         remoteConfig.accessToken = input.authToken || "";
     }
     if (input.destinationId !== undefined) {
-        remoteConfig.destinationId = (input.destinationId || "").trim();
+        remoteConfig.destinationId =
+            sanitizeFleetRouteTarget(input.destinationId, remoteConfig.endpointUrl) ||
+            (isAssociableFleetWireNodeId(input.destinationId)
+                ? normalizeWireNodeId(input.destinationId)
+                : "");
     } else if (input.routeTarget !== undefined) {
-        remoteConfig.destinationId = (input.routeTarget || "").trim();
+        remoteConfig.destinationId =
+            sanitizeFleetRouteTarget(input.routeTarget, remoteConfig.endpointUrl) ||
+            (isAssociableFleetWireNodeId(input.routeTarget)
+                ? normalizeWireNodeId(input.routeTarget)
+                : "");
     }
     if (input.clientId !== undefined) {
-        remoteConfig.clientId = (input.clientId || "").trim();
+        remoteConfig.clientId = sanitizeFleetSelfWireNodeId(input.clientId);
     }
     if (input.identificationToken !== undefined) {
         remoteConfig.identificationToken = (input.identificationToken || "").trim();
@@ -512,10 +556,13 @@ export function syncAirpadRemoteConfigFromAppSettings(
     if (blob.directUrl) input.directUrl = blob.directUrl;
     if (blob.quickConnectValue) input.quickConnectValue = blob.quickConnectValue;
     if (blob.destinationId || blob.routeTarget) {
-        input.destinationId = blob.destinationId || blob.routeTarget;
+        const dest = blob.destinationId || blob.routeTarget;
+        const sanitized = sanitizeFleetRouteTarget(dest, blob.endpointUrl);
+        if (sanitized) input.destinationId = sanitized;
+        else if (isAssociableFleetWireNodeId(dest)) input.destinationId = normalizeWireNodeId(dest);
     }
     if (blob.accessToken || blob.authToken) input.accessToken = blob.accessToken || blob.authToken;
-    if (blob.clientId) input.clientId = blob.clientId;
+    if (blob.clientId) input.clientId = sanitizeFleetSelfWireNodeId(blob.clientId) || undefined;
     if (blob.peerInstanceId) input.peerInstanceId = blob.peerInstanceId;
     if (blob.identificationToken) input.identificationToken = blob.identificationToken;
     if (blob.clientAccessToken) input.clientAccessToken = blob.clientAccessToken;
@@ -555,7 +602,7 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     const shell = settings.shell;
     const socket = core?.socket;
     const interop = core?.interop;
-    coreIdentityBridgeUserId = (core?.userId || "").trim();
+    coreIdentityBridgeUserId = sanitizeFleetSelfWireNodeId(core?.userId) || "";
     coreIdentityBridgeUserKey = (core?.userKey || "").trim();
     coreIdentityUseForAirpad = (core?.useCoreIdentityForAirPad ?? true) !== false;
     shellRemoteClipboardEnabled = (shell?.enableRemoteClipboardBridge ?? true) !== false;
@@ -577,8 +624,11 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     shellAcceptContactsBridgeData = (shell?.acceptContactsBridgeData ?? false) === true;
     shellAcceptSmsBridgeData = (shell?.acceptSmsBridgeData ?? false) === true;
     coreSocketProtocol = socket?.protocol === "http" || socket?.protocol === "https" ? socket.protocol : "auto";
-    coreSocketRouteTarget = (socket?.routeTarget || "").trim();
-    coreSocketSelfId = (socket?.selfId || "").trim();
+    const routeRaw = (socket?.routeTarget || "").trim();
+    coreSocketRouteTarget =
+        sanitizeFleetRouteTarget(routeRaw, core?.endpointUrl) ||
+        (isAssociableFleetWireNodeId(routeRaw) ? normalizeWireNodeId(routeRaw) : "");
+    coreSocketSelfId = sanitizeFleetSelfWireNodeId(socket?.selfId) || "";
     coreSocketAccessToken = (socket?.accessToken || socket?.airpadAuthToken || "").trim();
     coreSocketClientAccessToken = (socket?.clientAccessToken || "").trim();
     coreSocketTransportMode = socket?.transportMode === "secure" ? "secure" : "plaintext";
@@ -745,12 +795,24 @@ export function isShellNativeContactsEnabled(): boolean {
 
 // Configuration getters and setters
 export function getRemoteHost(): string {
-    return sanitizeLoopbackRemoteOnPublicOrigin(remoteHost);
+    const sanitized = sanitizeLoopbackRemoteOnPublicOrigin(remoteHost);
+    const endpoint =
+        remoteConfig.endpointUrl.trim() ||
+        normalizeOriginUrl(readGlobalAirpadValue(["AIRPAD_ENDPOINT_URL"]));
+    if (shouldPreferWanGatewayForAirpad(endpoint)) {
+        return resolveWanGatewayConnectOrigin(endpoint);
+    }
+    return sanitized;
 }
 
 export function getAirPadEndpointUrl(): string {
     if (remoteConfig.endpointUrl.trim()) return remoteConfig.endpointUrl.trim();
-    return normalizeOriginUrl(readGlobalAirpadValue(["AIRPAD_ENDPOINT_URL"]));
+    const fromGlobal = normalizeOriginUrl(readGlobalAirpadValue(["AIRPAD_ENDPOINT_URL"]));
+    if (fromGlobal) return fromGlobal;
+    if (isOffHomeFleetNetwork()) {
+        return resolveWanGatewayConnectOrigin("");
+    }
+    return "";
 }
 
 export function getAirPadDirectTargetUrl(): string {
@@ -817,9 +879,13 @@ export async function setAirPadQuickConnectTarget(
                 (await resolveConnectHostToOrigin(wireBare, { discover: true, ...probeOpts })) ||
                 normalizeConnectHostInput(wireBare);
         }
-        remoteConfig.destinationId = normalizeWireNodeId(trimmed);
+        remoteConfig.destinationId =
+            sanitizeFleetRouteTarget(trimmed, remoteConfig.endpointUrl) ||
+            (isAssociableFleetWireNodeId(trimmed) ? normalizeWireNodeId(trimmed) : DEFAULT_DESK_WIRE_NODE_ID);
     } else {
-        remoteConfig.destinationId = trimmed;
+        remoteConfig.destinationId =
+            sanitizeFleetRouteTarget(trimmed, remoteConfig.endpointUrl) ||
+            (isAssociableFleetWireNodeId(trimmed) ? normalizeWireNodeId(trimmed) : "");
         remoteConfig.directUrl = "";
     }
     refreshRemoteHost();
@@ -890,22 +956,25 @@ export function getRemoteProtocol(): RemoteProtocol {
 const inferControlNodeIdFromUrl = (value: string): string => {
     const normalized = normalizeOriginUrl(value);
     if (!normalized) return "";
+    let nodeId = "";
     try {
         const withScheme = /^[a-z][a-z0-9+.-]*:\/\//i.test(normalized)
             ? normalized
             : `https://${normalized}`;
         const host = new URL(withScheme).hostname.trim();
-        if (!host) return "";
-        return /^L-/i.test(host) ? host : `L-${host}`;
+        if (host) {
+            nodeId = /^L-/i.test(host) ? host : `L-${host}`;
+        }
     } catch {
         const bare = normalized.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").split("/")[0]?.split(":")[0]?.trim() || "";
-        if (!bare) return "";
-        return /^L-/i.test(bare) ? bare : `L-${bare}`;
+        if (bare) {
+            nodeId = /^L-/i.test(bare) ? bare : `L-${bare}`;
+        }
     }
+    if (isAssociableFleetWireNodeId(nodeId)) return normalizeWireNodeId(nodeId);
+    if (isGatewayHttpsOrigin(value)) return DEFAULT_DESK_WIRE_NODE_ID;
+    return "";
 };
-
-/** Default desk when routing through gateway without an explicit destination. */
-const DEFAULT_DESK_ROUTE_TARGET = "L-192.168.0.110";
 
 const isGatewayWireNode = (value: string): boolean => {
     const normalized = normalizeWireNodeId(value).toLowerCase();
@@ -916,39 +985,39 @@ const isGatewayWireNode = (value: string): boolean => {
     );
 };
 
-const isGatewayConnectOrigin = (value: string): boolean => {
-    const lower = String(value || "").trim().toLowerCase();
-    if (!lower) return false;
-    return (
-        lower.includes("192.168.0.200") ||
-        lower.includes("45.147.121.152") ||
-        lower.includes("gateway")
-    );
-};
-
 /**
  * Coordinator routing target for mouse/keyboard/clipboard acts and handshake hints.
  * Empty string means "execute on the peer we are socket-connected to" (direct mode).
  */
 export function getRemoteRouteTarget(): string {
-    if (remoteConfig.destinationId.trim()) return remoteConfig.destinationId.trim();
+    if (remoteConfig.destinationId.trim()) {
+        const sanitized = sanitizeFleetRouteTarget(
+            remoteConfig.destinationId,
+            remoteConfig.endpointUrl
+        );
+        if (sanitized) return sanitized;
+        if (isAssociableFleetWireNodeId(remoteConfig.destinationId)) {
+            return remoteConfig.destinationId.trim();
+        }
+    }
 
     const direct = remoteConfig.directUrl.trim();
     const endpoint = remoteConfig.endpointUrl.trim();
     if (direct) {
-        // COMPAT: quick-connect historically accepted either the desk or the gateway.
-        // Gateway origins are routed sessions even if stored in directUrl.
-        if (isGatewayConnectOrigin(direct)) return DEFAULT_DESK_ROUTE_TARGET;
-        // Gateway + direct target: forward control to the direct device, not the controller's self id.
-        if (endpoint) return inferControlNodeIdFromUrl(direct);
-        // Pure direct connect: empty nodes so the connected host handles input locally.
-        return "";
+        if (isGatewayHttpsOrigin(direct)) return DEFAULT_DESK_WIRE_NODE_ID;
+        if (endpoint && isGatewayHttpsOrigin(endpoint)) return DEFAULT_DESK_WIRE_NODE_ID;
+        if (endpoint) {
+            const inferred = inferControlNodeIdFromUrl(direct);
+            return inferred || DEFAULT_DESK_WIRE_NODE_ID;
+        }
+        const inferred = inferControlNodeIdFromUrl(direct);
+        return inferred || "";
     }
 
     const fromCore = coreSocketRouteTarget.trim();
     if (fromCore && !isGatewayWireNode(fromCore)) return fromCore;
-    if (endpoint && isGatewayConnectOrigin(endpoint)) {
-        return DEFAULT_DESK_ROUTE_TARGET;
+    if (endpoint && isGatewayHttpsOrigin(endpoint)) {
+        return DEFAULT_DESK_WIRE_NODE_ID;
     }
     return fromCore || "";
 }
@@ -995,10 +1064,17 @@ export function setAirPadAuthToken(token: string): void {
 }
 
 export function getAirPadClientId(): string {
-    if (coreSocketSelfId.trim()) return coreSocketSelfId.trim();
-    if (coreIdentityUseForAirpad && coreIdentityBridgeUserId.trim()) return coreIdentityBridgeUserId.trim();
-    if (remoteConfig.clientId.trim()) return remoteConfig.clientId.trim();
-    return readGlobalAirpadValue(["AIRPAD_CLIENT_ID", "AIRPAD_CLIENT"]);
+    const candidates = [
+        coreSocketSelfId.trim(),
+        coreIdentityUseForAirpad ? coreIdentityBridgeUserId.trim() : "",
+        remoteConfig.clientId.trim(),
+        readGlobalAirpadValue(["AIRPAD_CLIENT_ID", "AIRPAD_CLIENT"])
+    ];
+    for (const entry of candidates) {
+        const sanitized = sanitizeFleetSelfWireNodeId(entry);
+        if (sanitized) return sanitized;
+    }
+    return "";
 }
 
 export function getAssociatedClientToken(): string {
@@ -1015,12 +1091,14 @@ export function getClientAccessToken(): string {
 }
 
 export function setAirPadClientId(clientId: string): void {
-    remoteConfig.clientId = (clientId || "").trim();
+    remoteConfig.clientId = sanitizeFleetSelfWireNodeId(clientId);
     persistRemoteConfig();
 }
 
 export function setRemoteRouteTarget(routeTarget: string): void {
-    remoteConfig.destinationId = (routeTarget || "").trim();
+    remoteConfig.destinationId =
+        sanitizeFleetRouteTarget(routeTarget, remoteConfig.endpointUrl) ||
+        (isAssociableFleetWireNodeId(routeTarget) ? normalizeWireNodeId(routeTarget) : "");
     persistRemoteConfig();
 }
 
