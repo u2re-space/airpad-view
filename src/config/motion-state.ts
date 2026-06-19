@@ -2,7 +2,7 @@
 // Unified motion accumulator and debounced sender
 // =========================
 
-import { MOTION_SEND_INTERVAL, MOTION_JITTER_EPS } from './config';
+import { getMotionSendIntervalMs, recordMotionSendSample, MOTION_JITTER_EPS } from './config';
 import { sendAirPadIntent } from '../network/session';
 import { quantizeMotionFlush, type MotionAccum } from './motion-quantize';
 
@@ -26,6 +26,7 @@ export function flushMotionNow(): void {
     const motion = quantizeMotionFlush(accum);
     clearAccum();
     if (!motion) return;
+    recordMotionSendSample();
     sendAirPadIntent({
         type: "pointer.move",
         dx: motion.dx,
@@ -40,13 +41,14 @@ function scheduleFlush() {
         flushTimer = null;
         const motion = quantizeMotionFlush(accum);
         if (!motion) return;
+        recordMotionSendSample();
         sendAirPadIntent({
             type: 'pointer.move',
             dx: motion.dx,
             dy: motion.dy,
             dz: motion.dz,
         });
-    }, MOTION_SEND_INTERVAL) as any;
+    }, getMotionSendIntervalMs()) as any;
 }
 
 // Public API: accumulate motion deltas; they will be sent debounced

@@ -42,6 +42,12 @@ import {
     wireNodeIdToBareConnectHost,
     type CwspRemoteConnectionV1
 } from "cwsp-shared/airpad-cwsp-client-parity";
+import {
+    getAirpadMotionRateController,
+    inferAirpadMotionPathClass,
+    motionIntervalMsForHz,
+    type AirpadMotionPathClass
+} from "cwsp-shared/airpad-motion-adaptive";
 
 export type { WireTargetEntry };
 
@@ -1186,8 +1192,42 @@ export const GYRO_SMOOTH = 0.3;       // сглаживание [0..1]
 export const GYRO_MAX_STEP = 25;       // максимум пикселей за тик
 export const GYRO_MAX_SAMPLE_COUNT = 1000; // размер окна для Monte Carlo калибровки
 export const GYRO_ROTATION_GAIN = 0.9; // коэффициент коррекции вращения (Z axis)
-export const MOTION_SEND_INTERVAL = 7; // мс между отправками (~144 fps)
+export const MOTION_SEND_INTERVAL = motionIntervalMsForHz(120); // LAN max tier (~120 Hz)
 export const MOTION_JITTER_EPS = 0.001; // минимальный порог (пикселей), чтобы гасить дрожание при отправке
+
+const airpadMotionPathHint = (): {
+    endpointUrl?: string;
+    directUrl?: string;
+    pageHost?: string;
+    routedDesk?: boolean;
+} => ({
+    endpointUrl: remoteConfig.endpointUrl,
+    directUrl: remoteConfig.directUrl,
+    pageHost:
+        typeof globalThis !== "undefined" && globalThis.location
+            ? globalThis.location.hostname
+            : "",
+    routedDesk: Boolean(getRemoteRouteTarget().trim())
+});
+
+const motionRateController = getAirpadMotionRateController(airpadMotionPathHint);
+
+/** Adaptive motion flush interval (120 → 90 → 60 Hz on WAN lag). */
+export const getMotionSendIntervalMs = (): number => motionRateController.getIntervalMs();
+
+export const getMotionSendHz = (): number => motionRateController.getHz();
+
+export const getMotionPathClass = (): AirpadMotionPathClass =>
+    inferAirpadMotionPathClass(airpadMotionPathHint());
+
+export const isWanMotionPath = (): boolean => getMotionPathClass() !== "lan";
+
+export const recordMotionSendSample = (): void => motionRateController.onMotionSent();
+
+/** Recompute tier after endpoint / route changes (before reconnect). */
+export const refreshMotionSendRateFromConfig = (): void => {
+    motionRateController.resetTier();
+};
 
 // Параметры движения (через интегрированные углы)
 export const ANGLE_DEADZONE = 0.001;      // минимальный порог по углу (рад)

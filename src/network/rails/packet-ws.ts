@@ -1,4 +1,4 @@
-import { getAirPadDestinationId, isShellRemoteClipboardBridgeEnabled } from "../../config/config";
+import { getAirPadDestinationId, isShellRemoteClipboardBridgeEnabled, getMotionSendHz, getMotionPathClass } from "../../config/config";
 import {
     encodeBinaryClick,
     encodeBinaryKeyboard,
@@ -49,7 +49,16 @@ const canUseBinaryAirpadTransport = (): boolean => !getAirPadDestinationId().tri
 const toCoordinatorAction = (intent: AirPadIntent): { what: string; payload: any } | null => {
     switch (intent.type) {
         case "pointer.move":
-            return { what: "mouse:move", payload: { x: intent.dx, y: intent.dy, z: intent.dz ?? 0 } };
+            return {
+                what: "mouse:move",
+                payload: {
+                    x: intent.dx,
+                    y: intent.dy,
+                    z: intent.dz ?? 0,
+                    motionHz: getMotionSendHz(),
+                    motionPath: getMotionPathClass()
+                }
+            };
         case "pointer.click":
             return {
                 what: "mouse:click",

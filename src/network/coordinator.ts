@@ -15,7 +15,7 @@ import {
 } from "./rails/packet-ws";
 import type { AirPadClipboardResult, AirPadIntent } from "./intents";
 import { invalidateAirpadTransportCredentials } from "../credential-cache-bridge";
-import { isClipboardHubBootstrapEnabled, isMaintainHubSocketConnectionEnabled, syncAirpadRemoteConfigToNativeShell } from "../config/config";
+import { isClipboardHubBootstrapEnabled, isMaintainHubSocketConnectionEnabled, syncAirpadRemoteConfigToNativeShell, refreshMotionSendRateFromConfig } from "../config/config";
 import {
     sendCoordinatorAct,
     sendCoordinatorAsk,
@@ -113,6 +113,7 @@ export const airPadNetworkCoordinator: AirPadNetworkCoordinator = {
 
     reconnectAfterConfigChange(options?: AirPadReconnectAfterConfigOptions): void {
         invalidateAirpadTransportCredentials();
+        refreshMotionSendRateFromConfig();
         const delayMs = options?.delayMs ?? 80;
         void (async () => {
             await sleep(delayMs);
