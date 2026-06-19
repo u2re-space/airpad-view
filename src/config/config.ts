@@ -30,16 +30,23 @@ import {
     appSettingsShellToNativeExtras,
     inferDirectHttpsOriginFromConnectInput,
     isAssociableFleetWireNodeId,
+    isFleetDeskWireNodeId,
     isGatewayHttpsOrigin,
     normalizeWireNodeIdForWire,
     isGuestPrivateLanIpv4,
     isOffHomeFleetNetwork,
+    resolveDeskDirectOriginFromWireNodeId,
+    resolveFleetGatewayConnectOrigins,
     resolveWanGatewayConnectOrigin,
     sanitizeFleetRouteTarget,
     sanitizeFleetSelfWireNodeId,
+    shouldConnectViaFleetGateway,
+    shouldFleetDeskGatewayProbeFallbacks,
+    resolveFleetDeskProbeWireNodeId,
     shouldPreferWanGatewayForAirpad,
     stringifyCwspRemoteConnectionV1,
     wireNodeIdToBareConnectHost,
+    wireNodeIdToLanHost,
     type CwspRemoteConnectionV1
 } from "cwsp-shared/airpad-cwsp-client-parity";
 import {
@@ -352,9 +359,36 @@ let coreSocketProtocolLanesJson = "";
 export let remoteHost = "";
 
 const refreshRemoteHost = (): void => {
-    // WHY: the one-field AirPad quick-connect UI now maps URL input to `directUrl`,
-    // so try that override before the durable Server-tab endpoint URL.
-    remoteHost = joinUniqueUrls(remoteConfig.directUrl, remoteConfig.endpointUrl);
+    const endpoint = remoteConfig.endpointUrl.trim();
+    const direct = remoteConfig.directUrl.trim();
+    const rawDest = remoteConfig.destinationId.trim();
+    const routeTarget =
+        sanitizeFleetRouteTarget(rawDest, endpoint) ||
+        (isAssociableFleetWireNodeId(rawDest) ? normalizeWireNodeId(rawDest) : "");
+
+    const parts: string[] = [];
+    if (direct) parts.push(direct);
+
+    const fleetDeskProbe =
+        shouldFleetDeskGatewayProbeFallbacks(routeTarget, endpoint, direct) ||
+        shouldConnectViaFleetGateway(endpoint, routeTarget);
+    if (fleetDeskProbe) {
+        const deskWireId = resolveFleetDeskProbeWireNodeId(routeTarget, endpoint, direct);
+        const deskOrigin = resolveDeskDirectOriginFromWireNodeId(deskWireId);
+        if (deskOrigin && !parts.some((entry) => entry.includes(wireNodeIdToLanHost(deskWireId)))) {
+            parts.push(deskOrigin);
+        }
+        for (const gw of resolveFleetGatewayConnectOrigins(globalThis.location?.hostname)) {
+            if (!parts.some((entry) => entry.includes(new URL(gw).hostname))) {
+                parts.push(gw);
+            }
+        }
+        if (endpoint && !parts.includes(endpoint)) parts.push(endpoint);
+    } else if (endpoint) {
+        parts.push(endpoint);
+    }
+
+    remoteHost = joinUniqueUrls(...parts);
 };
 
 /**
@@ -805,6 +839,7 @@ export function getRemoteHost(): string {
     const endpoint =
         remoteConfig.endpointUrl.trim() ||
         normalizeOriginUrl(readGlobalAirpadValue(["AIRPAD_ENDPOINT_URL"]));
+    const routeTarget = getRemoteRouteTarget().trim();
     if (shouldPreferWanGatewayForAirpad(endpoint)) {
         return resolveWanGatewayConnectOrigin(endpoint);
     }
@@ -1023,6 +1058,7 @@ export function getRemoteRouteTarget(): string {
     const fromCore = coreSocketRouteTarget.trim();
     if (fromCore && !isGatewayWireNode(fromCore)) return fromCore;
     if (endpoint && isGatewayHttpsOrigin(endpoint)) {
+        if (isFleetDeskWireNodeId(fromCore)) return normalizeWireNodeId(fromCore);
         return DEFAULT_DESK_WIRE_NODE_ID;
     }
     return fromCore || "";
