@@ -1,5 +1,11 @@
 import { getAirPadDestinationId, isShellRemoteClipboardBridgeEnabled, getMotionSendHz, getMotionPathClass } from "../../config/config";
 import {
+    getAirpadMotionKvmPayload,
+    refreshAirpadKvmSession,
+    resetAirpadKvmSession,
+    trackAirpadMotionDelta
+} from "../../config/kvm-session";
+import {
     encodeBinaryClick,
     encodeBinaryKeyboard,
     encodeBinaryMouseDown,
@@ -49,6 +55,8 @@ const canUseBinaryAirpadTransport = (): boolean => !getAirPadDestinationId().tri
 const toCoordinatorAction = (intent: AirPadIntent): { what: string; payload: any } | null => {
     switch (intent.type) {
         case "pointer.move":
+            trackAirpadMotionDelta(intent.dx, intent.dy, getAirPadDestinationId());
+            const kvmPayload = getAirpadMotionKvmPayload(getAirPadDestinationId());
             return {
                 what: "mouse:move",
                 payload: {
@@ -56,7 +64,8 @@ const toCoordinatorAction = (intent: AirPadIntent): { what: string; payload: any
                     y: intent.dy,
                     z: intent.dz ?? 0,
                     motionHz: getMotionSendHz(),
-                    motionPath: getMotionPathClass()
+                    motionPath: getMotionPathClass(),
+                    ...(kvmPayload ? { kvm: kvmPayload } : {})
                 }
             };
         case "pointer.click":
@@ -166,7 +175,17 @@ export const isPacketWsRailConnected = (): boolean => {
 };
 
 export const onPacketWsRailConnectionChange = (handler: (connected: boolean) => void): (() => void) => {
-    return onWSConnectionChange(handler);
+    return onWSConnectionChange((connected) => {
+        if (connected) {
+            void refreshAirpadKvmSession(
+                (what, payload) => sendCoordinatorRequest(what, payload, resolveInputRouteNodes()),
+                getAirPadDestinationId()
+            );
+        } else {
+            resetAirpadKvmSession();
+        }
+        handler(connected);
+    });
 };
 
 export const onPacketWsClipboardUpdate = (handler: (text: string, meta?: { source?: string }) => void): (() => void) => {
