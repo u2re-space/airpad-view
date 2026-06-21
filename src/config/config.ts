@@ -26,11 +26,14 @@ import {
     AIRPAD_REMOTE_CONFIG_STORAGE_KEY,
     CWSP_REMOTE_CONNECTION_JSON_VERSION,
     DEFAULT_DESK_WIRE_NODE_ID,
+    FLEET_GATEWAY_WIRE_NODE_ID,
     appSettingsToRemoteConnectionV1,
     appSettingsShellToNativeExtras,
     inferDirectHttpsOriginFromConnectInput,
     isAssociableFleetWireNodeId,
     isFleetDeskWireNodeId,
+    isExplicitFleetGatewayTarget,
+    isFleetGatewayWireNodeId,
     isGatewayHttpsOrigin,
     normalizeWireNodeIdForWire,
     isGuestPrivateLanIpv4,
@@ -365,14 +368,27 @@ const refreshRemoteHost = (): void => {
     const routeTarget =
         sanitizeFleetRouteTarget(rawDest, endpoint) ||
         (isAssociableFleetWireNodeId(rawDest) ? normalizeWireNodeId(rawDest) : "");
+    const routeTargetIsGateway = isFleetGatewayWireNodeId(routeTarget);
+    const routeTargetHost = wireNodeIdToLanHost(routeTarget);
+    const directMatchesGatewayTarget =
+        routeTargetIsGateway &&
+        (isGatewayHttpsOrigin(direct) || Boolean(routeTargetHost && direct.includes(routeTargetHost)));
 
     const parts: string[] = [];
-    if (direct) parts.push(direct);
+    if (direct && (!routeTargetIsGateway || directMatchesGatewayTarget)) parts.push(direct);
 
     const fleetDeskProbe =
-        shouldFleetDeskGatewayProbeFallbacks(routeTarget, endpoint, direct) ||
-        shouldConnectViaFleetGateway(endpoint, routeTarget);
-    if (fleetDeskProbe) {
+        !routeTargetIsGateway &&
+        (shouldFleetDeskGatewayProbeFallbacks(routeTarget, endpoint, direct) ||
+            shouldConnectViaFleetGateway(endpoint, routeTarget));
+    if (routeTargetIsGateway) {
+        for (const gw of resolveFleetGatewayConnectOrigins(globalThis.location?.hostname)) {
+            if (!parts.some((entry) => entry.includes(new URL(gw).hostname))) {
+                parts.push(gw);
+            }
+        }
+        if (endpoint && !parts.includes(endpoint)) parts.push(endpoint);
+    } else if (fleetDeskProbe) {
         const deskWireId = resolveFleetDeskProbeWireNodeId(routeTarget, endpoint, direct);
         const deskOrigin = resolveDeskDirectOriginFromWireNodeId(deskWireId);
         if (deskOrigin && !parts.some((entry) => entry.includes(wireNodeIdToLanHost(deskWireId)))) {
@@ -909,7 +925,9 @@ export async function setAirPadQuickConnectTarget(
                 inferred ||
                 normalizeConnectHostInput(trimmed);
         }
-        remoteConfig.destinationId = "";
+        remoteConfig.destinationId =
+            inferControlNodeIdFromUrl(remoteConfig.directUrl) ||
+            (isGatewayHttpsOrigin(trimmed) ? FLEET_GATEWAY_WIRE_NODE_ID : "");
     } else if (wireBare) {
         const inferred = inferDirectHttpsOriginFromConnectInput(wireBare);
         if (opts.discover === false) {
@@ -922,6 +940,7 @@ export async function setAirPadQuickConnectTarget(
         }
         remoteConfig.destinationId =
             sanitizeFleetRouteTarget(trimmed, remoteConfig.endpointUrl) ||
+            (isExplicitFleetGatewayTarget(trimmed) ? FLEET_GATEWAY_WIRE_NODE_ID : "") ||
             (isAssociableFleetWireNodeId(trimmed) ? normalizeWireNodeId(trimmed) : DEFAULT_DESK_WIRE_NODE_ID);
     } else {
         remoteConfig.destinationId =
@@ -1012,8 +1031,9 @@ const inferControlNodeIdFromUrl = (value: string): string => {
             nodeId = /^L-/i.test(bare) ? bare : `L-${bare}`;
         }
     }
+    if (isFleetGatewayWireNodeId(nodeId)) return FLEET_GATEWAY_WIRE_NODE_ID;
     if (isAssociableFleetWireNodeId(nodeId)) return normalizeWireNodeId(nodeId);
-    if (isGatewayHttpsOrigin(value)) return DEFAULT_DESK_WIRE_NODE_ID;
+    if (isGatewayHttpsOrigin(value)) return FLEET_GATEWAY_WIRE_NODE_ID;
     return "";
 };
 
@@ -1042,23 +1062,32 @@ export function getRemoteRouteTarget(): string {
         }
     }
 
-    const direct = remoteConfig.directUrl.trim();
     const endpoint = remoteConfig.endpointUrl.trim();
+    const quick = remoteConfig.quickConnectValue.trim();
+    if (quick) {
+        const sanitized = sanitizeFleetRouteTarget(quick, endpoint);
+        if (sanitized) return sanitized;
+        if (isGatewayHttpsOrigin(quick)) return FLEET_GATEWAY_WIRE_NODE_ID;
+        if (isAssociableFleetWireNodeId(quick)) return normalizeWireNodeId(quick);
+    }
+
+    const direct = remoteConfig.directUrl.trim();
     if (direct) {
-        if (isGatewayHttpsOrigin(direct)) return DEFAULT_DESK_WIRE_NODE_ID;
-        if (endpoint && isGatewayHttpsOrigin(endpoint)) return DEFAULT_DESK_WIRE_NODE_ID;
-        if (endpoint) {
-            const inferred = inferControlNodeIdFromUrl(direct);
-            return inferred || DEFAULT_DESK_WIRE_NODE_ID;
-        }
+        if (isGatewayHttpsOrigin(direct)) return FLEET_GATEWAY_WIRE_NODE_ID;
         const inferred = inferControlNodeIdFromUrl(direct);
-        return inferred || "";
+        if (inferred) return inferred;
+        if (endpoint && isGatewayHttpsOrigin(endpoint)) return DEFAULT_DESK_WIRE_NODE_ID;
+        return "";
     }
 
     const fromCore = coreSocketRouteTarget.trim();
-    if (fromCore && !isGatewayWireNode(fromCore)) return fromCore;
+    if (fromCore) {
+        if (isFleetGatewayWireNodeId(fromCore)) return normalizeWireNodeId(fromCore);
+        if (!isGatewayWireNode(fromCore)) return fromCore;
+    }
     if (endpoint && isGatewayHttpsOrigin(endpoint)) {
         if (isFleetDeskWireNodeId(fromCore)) return normalizeWireNodeId(fromCore);
+        if (isFleetGatewayWireNodeId(fromCore)) return FLEET_GATEWAY_WIRE_NODE_ID;
         return DEFAULT_DESK_WIRE_NODE_ID;
     }
     return fromCore || "";

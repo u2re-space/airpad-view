@@ -28,7 +28,6 @@ import {
 import type { AirPadClipboardResult, AirPadIntent } from "../intents";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
-const DEFAULT_AIRPAD_INPUT_TARGET = "L-192.168.0.110";
 const CLIPBOARD_CHORD_SETTLE_MS = 140;
 
 /** Act/ask replies may be a raw string or `{ value, text, ok, handled }` from local-dispatch. */
@@ -194,7 +193,7 @@ export const onPacketWsClipboardUpdate = (handler: (text: string, meta?: { sourc
 
 const resolveInputRouteNodes = (): string[] | undefined => {
     const target = getAirPadDestinationId().trim();
-    return [target || DEFAULT_AIRPAD_INPUT_TARGET];
+    return target ? [target] : undefined;
 };
 
 export const sendPacketWsIntent = (intent: AirPadIntent): void => {
