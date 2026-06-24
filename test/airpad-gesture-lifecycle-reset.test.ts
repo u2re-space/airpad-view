@@ -5,7 +5,7 @@ import { resolve } from "node:path";
 const source = readFileSync(resolve("src/ui/air-button.ts"), "utf8");
 
 assert.ok(
-    source.includes("import { resetMotionAccum } from '../config/motion-state';"),
+    /import \{[^}]*resetMotionAccum[^}]*\} from ['"]\.\.\/config\/motion-state['"];/.test(source),
     "Air gesture reset must clear pending motion accumulator"
 );
 assert.ok(
