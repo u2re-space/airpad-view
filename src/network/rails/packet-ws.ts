@@ -1,10 +1,10 @@
-import { getAirPadDestinationId, isShellRemoteClipboardBridgeEnabled, getMotionSendHz, getMotionPathClass } from "../../config/config";
+import { getAirPadDestinationId, isShellRemoteClipboardBridgeEnabled, getMotionSendHz, getMotionPathClass } from "../../config/config.ts";
 import {
     getAirpadMotionKvmPayload,
     refreshAirpadKvmSession,
     resetAirpadKvmSession,
     trackAirpadMotionDelta
-} from "../../config/kvm-session";
+} from "../../config/kvm-session.ts";
 import {
     encodeBinaryClick,
     encodeBinaryKeyboard,
@@ -24,14 +24,19 @@ import {
     sendCoordinatorAct,
     sendCoordinatorRequest,
     sendWsBinary
-} from "../transport/websocket";
-import type { AirPadClipboardResult, AirPadIntent } from "../intents";
+} from "../transport/websocket.ts";
+import type { AirPadClipboardResult, AirPadIntent } from "../intents.ts";
 import { INPUT_V3_FLAG, type InputV3Payload } from "cwsp-shared/input-v3";
+import { CWSP_SLOT, cwspGlobal } from "cwsp-shared/cwsp-global";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 const CLIPBOARD_CHORD_SETTLE_MS = 140;
 const INPUT_V3_STORAGE_KEY = "airpad.input.v3";
-let inputV3Seq = 0;
+
+type PacketWsRailState = { inputV3Seq: number };
+
+const packetWsRail = (): PacketWsRailState =>
+    cwspGlobal(CWSP_SLOT.airpadPacketWsRail, () => ({ inputV3Seq: 0 }));
 
 export const isInputV3Enabled = (): boolean => {
     const globalFlag = (globalThis as { CWS_INPUT_V3?: unknown }).CWS_INPUT_V3;
@@ -47,7 +52,7 @@ export const buildInputV3Payload = (intent: Extract<AirPadIntent, { type: "point
     input: INPUT_V3_FLAG,
     dx: intent.dx,
     dy: intent.dy,
-    seq: ++inputV3Seq,
+    seq: ++packetWsRail().inputV3Seq,
     sentAt: Date.now(),
     route: getAirPadDestinationId().trim()
 });

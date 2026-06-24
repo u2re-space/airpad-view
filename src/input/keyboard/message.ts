@@ -7,7 +7,7 @@ import {
     isAirPadSessionConnected,
     sendAirPadBinaryMessage,
     sendAirPadKeyboardChar
-} from '../../network/session';
+} from '../../network/session.ts';
 
 // Re-export for backward compatibility and direct binary sending
 export function sendKeyboardChar(char: string) {

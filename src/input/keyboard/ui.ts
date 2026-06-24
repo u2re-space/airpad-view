@@ -2,9 +2,9 @@
 // Keyboard UI Rendering
 // =========================
 
-import { EMOJI_CATEGORIES, KEYBOARD_LAYOUT, KEYBOARD_LAYOUT_UPPER } from './constants';
-import { sendKeyboardChar } from './message';
-import { getKeyboardElement, getToggleButton } from './state';
+import { EMOJI_CATEGORIES, KEYBOARD_LAYOUT, KEYBOARD_LAYOUT_UPPER } from './constants.ts';
+import { sendKeyboardChar } from './message.ts';
+import { getKeyboardElement, getToggleButton } from './state.ts';
 
 // Create keyboard HTML structure - hidden by default
 export function createKeyboardHTML(): string {

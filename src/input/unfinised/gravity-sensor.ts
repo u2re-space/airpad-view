@@ -2,9 +2,9 @@
 // Gravity Sensor
 // =========================
 
-import { log } from '../../utils/utils';
-import { vec3Zero, vec3FromSensor, vec3Smooth, vec3NormalizeAngles, type Vector3, vec3Normalize } from '../../utils/math';
-import { GRAVITY_SMOOTH } from '../../config/config';
+import { log } from '../../utils/utils.ts';
+import { vec3Zero, vec3FromSensor, vec3Smooth, vec3NormalizeAngles, type Vector3, vec3Normalize } from '../../utils/math.ts';
+import { GRAVITY_SMOOTH } from '../../config/config.ts';
 
 let gravitySensor: any = null;
 

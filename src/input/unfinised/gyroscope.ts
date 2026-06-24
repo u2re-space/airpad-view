@@ -2,11 +2,11 @@
 // Gyroscope
 // =========================
 
-import { log } from '../../utils/utils';
-import { enqueueMotion } from '../../config/motion-state';
-import { aiModeActive } from '../speech';
-import { getAirState, isMotionCalibrated, setMotionCalibrated, resetMotionBaseline } from '../../ui/air-button';
-import { ANGLE_DEADZONE, ANGLE_GAIN, ANGLE_SMOOTH, ANGLE_MAX_STEP, MOTION_SEND_INTERVAL, gyroDirX, gyroDirY, gyroDirZ, gyroSrcForMouseX, gyroSrcForMouseY, gyroSrcForMouseZ, GYRO_DEADZONE, GYRO_GAIN, GYRO_SMOOTH, GYRO_MAX_SAMPLE_COUNT, GYRO_ROTATION_GAIN, GRAVITY_CORRECTION_STRENGTH } from '../../config/config';
+import { log } from '../../utils/utils.ts';
+import { enqueueMotion } from '../../config/motion-state.ts';
+import { aiModeActive } from '../speech.ts';
+import { getAirState, isMotionCalibrated, setMotionCalibrated, resetMotionBaseline } from '../../ui/air-button.ts';
+import { ANGLE_DEADZONE, ANGLE_GAIN, ANGLE_SMOOTH, ANGLE_MAX_STEP, MOTION_SEND_INTERVAL, gyroDirX, gyroDirY, gyroDirZ, gyroSrcForMouseX, gyroSrcForMouseY, gyroSrcForMouseZ, GYRO_DEADZONE, GYRO_GAIN, GYRO_SMOOTH, GYRO_MAX_SAMPLE_COUNT, GYRO_ROTATION_GAIN, GRAVITY_CORRECTION_STRENGTH } from '../../config/config.ts';
 import {
     vec3Zero,
     vec3FromSensor,
@@ -27,8 +27,8 @@ import {
     vec3Select,
     normalizeAngle,
     vec3RotateXYByAngle,
-} from '../../utils/math';
-import { applyDimensionalCorrection, getOrientationCorrection, isGravityAvailable } from './gravity-sensor';
+} from '../../utils/math.ts';
+import { applyDimensionalCorrection, getOrientationCorrection, isGravityAvailable } from './gravity-sensor.ts';
 
 //
 let gyroscope: any = null;

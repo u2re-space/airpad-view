@@ -1,8 +1,8 @@
-import { log } from '../../utils/utils';
-import { enqueueMotion } from '../../config/motion-state';
-import { isAirPadSessionConnected } from '../../network/session';
-import { aiModeActive } from '../speech';
-import { getAirState } from '../../ui/air-button';
+import { log } from '../../utils/utils.ts';
+import { enqueueMotion } from '../../config/motion-state.ts';
+import { isAirPadSessionConnected } from '../../network/session.ts';
+import { aiModeActive } from '../speech.ts';
+import { getAirState } from '../../ui/air-button.ts';
 import {
     REL_ORIENT_DEADZONE,
     REL_ORIENT_GAIN,
@@ -15,7 +15,7 @@ import {
     relSrcForMouseY,
     relSrcForMouseZ,
     MOTION_JITTER_EPS,
-} from '../../config/config';
+} from '../../config/config.ts';
 import {
     vec3Zero,
     vec3Add,
@@ -28,7 +28,7 @@ import {
     vec3Select,
     type Vector3,
     normalizeAngle,
-} from '../../utils/math';
+} from '../../utils/math.ts';
 
 let relSensor: any = null;
 

@@ -1,7 +1,7 @@
-import { log } from '../../utils/utils';
-import { enqueueMotion } from '../../config/motion-state';
-import { aiModeActive } from '../speech';
-import { getAirState } from '../../ui/air-button';
+import { log } from '../../utils/utils.ts';
+import { enqueueMotion } from '../../config/motion-state.ts';
+import { aiModeActive } from '../speech.ts';
+import { getAirState } from '../../ui/air-button.ts';
 import {
     REL_ORIENT_DEADZONE,
     REL_ORIENT_GAIN,
@@ -19,7 +19,7 @@ import {
     relSrcForMouseY,
     relSrcForMouseZ,
     MOTION_JITTER_EPS,
-} from '../../config/config';
+} from '../../config/config.ts';
 import {
     vec3Zero,
     vec3Clamp,
@@ -31,7 +31,7 @@ import {
     expSmoothing,
     lerp,
     clamp01,
-} from '../../utils/math';
+} from '../../utils/math.ts';
 
 let relSensor: any = null;
 let fallbackOrientationActive = false;

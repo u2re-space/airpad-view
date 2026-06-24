@@ -2,13 +2,13 @@
 // Accelerometer
 // =========================
 
-import { log } from '../../utils/utils';
-import { enqueueMotion } from '../../config/motion-state';
-import { getAirState, setMotionCalibrated } from '../../ui/air-button';
-import { ACCELEROMETER_DEADZONE, ACCELEROMETER_GAIN, ACCELEROMETER_SMOOTH, ACCELEROMETER_MAX_SAMPLE_COUNT, GRAVITY_CORRECTION_STRENGTH, accelSrcForMouseX, accelSrcForMouseY, accelSrcForMouseZ, accelDirX, accelDirY, accelDirZ } from '../../config/config';
-import { vec3Zero, vec3FromSensor, vec3Sub, vec3Scale, type Vector3, vec3Mix, vec3Smooth, vec3Add, vec3DeadZone, vec3IsNearZero, vec3Select } from '../../utils/math';
-import { aiModeActive } from '../speech';
-import { getGravityVector, isGravityAvailable, getGravityMagnitude, getOrientationCorrection } from './gravity-sensor';
+import { log } from '../../utils/utils.ts';
+import { enqueueMotion } from '../../config/motion-state.ts';
+import { getAirState, setMotionCalibrated } from '../../ui/air-button.ts';
+import { ACCELEROMETER_DEADZONE, ACCELEROMETER_GAIN, ACCELEROMETER_SMOOTH, ACCELEROMETER_MAX_SAMPLE_COUNT, GRAVITY_CORRECTION_STRENGTH, accelSrcForMouseX, accelSrcForMouseY, accelSrcForMouseZ, accelDirX, accelDirY, accelDirZ } from '../../config/config.ts';
+import { vec3Zero, vec3FromSensor, vec3Sub, vec3Scale, type Vector3, vec3Mix, vec3Smooth, vec3Add, vec3DeadZone, vec3IsNearZero, vec3Select } from '../../utils/math.ts';
+import { aiModeActive } from '../speech.ts';
+import { getGravityVector, isGravityAvailable, getGravityMagnitude, getOrientationCorrection } from './gravity-sensor.ts';
 
 //
 let accelerometer: any = null;

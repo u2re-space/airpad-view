@@ -4,17 +4,17 @@
 
 import { stopBubbling } from "shared/policies/event-handling-policy";
 import { eventTargetElement } from 'core/document/DocTools';
-import { getAirpadOwnerDocument, log, getVkStatusEl } from '../../utils/utils';
-import { sendKeyboardChar } from './message';
-import { getVirtualKeyboardAPI } from './api';
+import { getAirpadOwnerDocument, log, getVkStatusEl } from '../../utils/utils.ts';
+import { sendKeyboardChar } from './message.ts';
+import { getVirtualKeyboardAPI } from './api.ts';
 import {
     isKeyboardVisible,
     setKeyboardVisible,
     getKeyboardElement,
     getToggleButton,
     isRemoteKeyboardEnabled
-} from './state';
-import { renderKeyboard, renderEmoji, restoreButtonIcon } from './ui';
+} from './state.ts';
+import { renderKeyboard, renderEmoji, restoreButtonIcon } from './ui.ts';
 
 const DEBUG_KEYBOARD_INPUT = false;
 /** AbortController for document-level dismiss listeners (scoped to airpad owner document). */

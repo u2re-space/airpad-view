@@ -28,7 +28,7 @@ import { resetMotionAccum } from "./config/motion-state";
 import { resetMotionBaseline } from "./ui/air-button";
 import { resetRelativeOrientationRuntimeState } from "./input/sensor/relative-orientation";
 import { reloadAirpadRemoteConfigFromStorage, attachAirpadCrossTabConfigSync } from "./config/config";
-import { AirpadEventBus, type AirpadEventMap } from "./component/AirpadEventBus";
+import { getAirpadEventBus, type AirpadEventMap } from "./component/AirpadEventBus";
 import { ensureCwAirpadActionRailDefined, CwAirpadActionRailElement } from "./component/CwAirpadActionRail";
 import { ensureCwAirpadSidePanelsDefined, CwAirpadSidePanelsElement } from "./component/CwAirpadSidePanels";
 
@@ -169,7 +169,7 @@ async function initAirpadApp(initToken: number | undefined, signal: AbortSignal,
     }
 
     const byId = (id: string) => queryAirpad(`#${CSS.escape(id)}`);
-    const bus = new AirpadEventBus();
+    const bus = getAirpadEventBus();
     const sidePanels = root.querySelector("cw-airpad-side-panels") as CwAirpadSidePanelsElement | null;
     const actionRail = root.querySelector("cw-airpad-action-rail") as CwAirpadActionRailElement | null;
     sidePanels?.connect(bus);

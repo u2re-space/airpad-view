@@ -12,10 +12,11 @@ import {
     requestPacketWsClipboardRead,
     sendPacketWsBinary,
     sendPacketWsIntent
-} from "../rails/packet-ws";
-import { onVoiceResult } from "../transport/websocket";
+} from "../rails/packet-ws.ts";
+import { onVoiceResult } from "./websocket.ts";
+import { CWSP_SLOT, cwspGlobal } from "cwsp-shared/cwsp-global";
 
-export const airpadTransport = {
+const buildAirpadTransport = () => ({
     init: initPacketWsRail,
     connect: connectPacketWsRail,
     disconnect: disconnectPacketWsRail,
@@ -30,4 +31,6 @@ export const airpadTransport = {
     requestClipboardCopy: requestPacketWsClipboardCopy,
     requestClipboardCut: requestPacketWsClipboardCut,
     requestClipboardPaste: requestPacketWsClipboardPaste
-};
+});
+
+export const airpadTransport = cwspGlobal(CWSP_SLOT.airpadTransportFacade, buildAirpadTransport);

@@ -2,21 +2,21 @@
 // Virtual Keyboard Component
 // =========================
 
-import { log, getVkStatusEl, getAirpadDomRoot } from '../utils/utils';
-import { initVirtualKeyboardAPI, hasVirtualKeyboardAPI } from './keyboard/api';
+import { log, getVkStatusEl, getAirpadDomRoot } from '../utils/utils.ts';
+import { initVirtualKeyboardAPI, hasVirtualKeyboardAPI } from './keyboard/api.ts';
 import {
     setKeyboardElement,
     setToggleButton,
     setRemoteKeyboardEnabled as setRemoteKeyboardEnabledState,
     getToggleButton,
-} from './keyboard/state';
-import { createKeyboardHTML } from './keyboard/ui';
+} from './keyboard/state.ts';
+import { createKeyboardHTML } from './keyboard/ui.ts';
 import {
     hideKeyboard,
     setupToggleButtonHandler,
     setupVirtualKeyboardAPIHandlers,
     setupKeyboardUIHandlers,
-} from './keyboard/handlers';
+} from './keyboard/handlers.ts';
 
 function updateToggleButtonEnabledState(enabled: boolean) {
     const toggleButton = getToggleButton();

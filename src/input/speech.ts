@@ -2,8 +2,8 @@
 // SpeechRecognition (AI-кнопка)
 // =========================
 
-import { log, getAiButton, getAiStatusEl, getVoiceTextEl } from '../utils/utils';
-import { connectAirPadSession, isAirPadSessionConnected, onAirPadVoiceMessage, sendAirPadIntent } from '../network/session';
+import { log, getAiButton, getAiStatusEl, getVoiceTextEl } from '../utils/utils.ts';
+import { connectAirPadSession, isAirPadSessionConnected, onAirPadVoiceMessage, sendAirPadIntent } from '../network/session.ts';
 import { loadSettings } from 'com/config/Settings';
 
 let recognition: any = null;

@@ -29,6 +29,7 @@ import {
     shouldUseNativeCoordinatorTransport
 } from "./transport/websocket";
 import { getRemoteHost, getRemoteProtocol } from "../config/config";
+import { CWSP_SLOT, cwspGlobal } from "cwsp-shared/cwsp-global";
 
 export interface AirPadNetworkCoordinatorState {
     connected: boolean;
@@ -90,7 +91,7 @@ const snapshotState = (): AirPadNetworkCoordinatorState => {
  * AirPad-specific coordinator abstraction that aligns with the CRX network
  * coordinator contract while preserving existing rail-level features.
  */
-export const airPadNetworkCoordinator: AirPadNetworkCoordinator = {
+const buildAirPadNetworkCoordinator = (): AirPadNetworkCoordinator => ({
     init(button: HTMLElement | null): void {
         initPacketWsRail(button);
         if (shouldUseNativeCoordinatorTransport()) {
@@ -224,4 +225,9 @@ export const airPadNetworkCoordinator: AirPadNetworkCoordinator = {
         const payload = target ? { text, target } : { text };
         return sendCoordinatorRequest("clipboard:update", payload, target ? [target] : undefined);
     }
-};
+});
+
+export const airPadNetworkCoordinator: AirPadNetworkCoordinator = cwspGlobal(
+    CWSP_SLOT.airpadCoordinator,
+    buildAirPadNetworkCoordinator
+);

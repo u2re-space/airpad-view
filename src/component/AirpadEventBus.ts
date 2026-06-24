@@ -1,3 +1,5 @@
+import { CWSP_SLOT, cwspGlobal } from "cwsp-shared/cwsp-global";
+
 export type AirpadEventMap = {
     "ui.config.open": undefined;
     /** Open CWS admin UI (HTTPS :8434 by default); use Settings → Server for HTTP or origins. */
@@ -42,3 +44,6 @@ export class AirpadEventBus {
         this.handlers.clear();
     }
 }
+
+export const getAirpadEventBus = (): AirpadEventBus =>
+    cwspGlobal(CWSP_SLOT.airpadEventBus, () => new AirpadEventBus());

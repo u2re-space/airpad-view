@@ -2,7 +2,7 @@
 // VirtualKeyboard API Management
 // =========================
 
-import { log } from '../../utils/utils';
+import { log } from '../../utils/utils.ts';
 
 let virtualKeyboardAPI: any = null;
 
