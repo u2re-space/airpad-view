@@ -303,7 +303,7 @@ export function initRelativeOrientation() {
     }
 
     try {
-        relSensor = new (window as any).RelativeOrientationSensor({ frequency: 120, referenceFrame: 'device' });
+        relSensor = new (window as any).RelativeOrientationSensor({ frequency: 60, referenceFrame: 'device' });
     } catch (err: any) {
         log('Cannot create RelativeOrientationSensor: ' + (err?.message || err));
         relSensor = null;
@@ -336,7 +336,7 @@ export function initRelativeOrientation() {
 
     try {
         relSensor.start();
-        log('RelativeOrientationSensor started (120 Hz)');
+        log('RelativeOrientationSensor started (60 Hz)');
     } catch (err: any) {
         log('RelativeOrientationSensor start failed: ' + (err?.message || err));
         startDeviceOrientationFallback();

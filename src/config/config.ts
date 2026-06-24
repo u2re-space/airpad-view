@@ -1257,7 +1257,7 @@ export const GYRO_SMOOTH = 0.3;       // сглаживание [0..1]
 export const GYRO_MAX_STEP = 25;       // максимум пикселей за тик
 export const GYRO_MAX_SAMPLE_COUNT = 1000; // размер окна для Monte Carlo калибровки
 export const GYRO_ROTATION_GAIN = 0.9; // коэффициент коррекции вращения (Z axis)
-export const MOTION_SEND_INTERVAL = motionIntervalMsForHz(30); // LAN max tier (~120 Hz)
+export const MOTION_SEND_INTERVAL = motionIntervalMsForHz(30); // compatibility default; adaptive send tiers are 60/30 Hz
 export const MOTION_JITTER_EPS = 0.001; // минимальный порог (пикселей), чтобы гасить дрожание при отправке
 
 const airpadMotionPathHint = (): {
@@ -1277,7 +1277,7 @@ const airpadMotionPathHint = (): {
 
 const motionRateController = getAirpadMotionRateController(airpadMotionPathHint);
 
-/** Adaptive motion flush interval (120 → 90 → 60 Hz on WAN lag). */
+/** Adaptive motion flush interval (60 → 30 Hz on WAN/gateway lag). */
 export const getMotionSendIntervalMs = (): number => motionRateController.getIntervalMs();
 
 export const getMotionSendHz = (): number => motionRateController.getHz();
