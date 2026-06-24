@@ -26,9 +26,31 @@ import {
     sendWsBinary
 } from "../transport/websocket";
 import type { AirPadClipboardResult, AirPadIntent } from "../intents";
+import { INPUT_V3_FLAG, type InputV3Payload } from "cwsp-shared/input-v3";
 
 const sleep = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms));
 const CLIPBOARD_CHORD_SETTLE_MS = 140;
+const INPUT_V3_STORAGE_KEY = "airpad.input.v3";
+let inputV3Seq = 0;
+
+export const isInputV3Enabled = (): boolean => {
+    const globalFlag = (globalThis as { CWS_INPUT_V3?: unknown }).CWS_INPUT_V3;
+    if (globalFlag === true || globalFlag === "1" || globalFlag === INPUT_V3_FLAG) return true;
+    try {
+        return globalThis.localStorage?.getItem(INPUT_V3_STORAGE_KEY) === "1";
+    } catch {
+        return false;
+    }
+};
+
+export const buildInputV3Payload = (intent: Extract<AirPadIntent, { type: "pointer.move" }>): InputV3Payload => ({
+    input: INPUT_V3_FLAG,
+    dx: intent.dx,
+    dy: intent.dy,
+    seq: ++inputV3Seq,
+    sentAt: Date.now(),
+    route: getAirPadDestinationId().trim()
+});
 
 /** Act/ask replies may be a raw string or `{ value, text, ok, handled }` from local-dispatch. */
 const extractCoordinatorClipboardText = (result: unknown): string => {
@@ -56,6 +78,15 @@ const toCoordinatorAction = (intent: AirPadIntent): { what: string; payload: any
         case "pointer.move":
             trackAirpadMotionDelta(intent.dx, intent.dy, getAirPadDestinationId());
             const kvmPayload = getAirpadMotionKvmPayload(getAirPadDestinationId());
+            if (isInputV3Enabled()) {
+                return {
+                    what: "mouse:move",
+                    payload: {
+                        ...buildInputV3Payload(intent),
+                        ...(kvmPayload ? { kvm: kvmPayload } : {})
+                    }
+                };
+            }
             return {
                 what: "mouse:move",
                 payload: {
