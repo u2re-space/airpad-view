@@ -41,7 +41,7 @@ let fallbackHandler: ((event: DeviceOrientationEvent) => void) | null = null;
 let lastQuat: [number, number, number, number] | null = null;
 let smoothedDelta: Vector3 = vec3Zero(); // smoothed small-angle delta
 let dynamicMaxStepPx: number = REL_ORIENT_MAX_STEP; // adaptive clamp radius in pixels/tick
-const REL_ORIENT_ZERO_DECAY_RATE = 42;
+const REL_ORIENT_ZERO_DECAY_RATE = 200;
 
 export function resetRelativeOrientationRuntimeState() {
     lastQuat = null;

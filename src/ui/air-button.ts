@@ -174,6 +174,12 @@ export function enterAirMove(startDrag: boolean = false) {
 /**
  * Выход из AIR_MOVE режима
  */
+/** Discard pending motion/sensor state when AIR_MOVE ends — do not flush tail deltas. */
+function stopAirMoveMotionPipeline() {
+    resetMotionAccum();
+    resetRelativeOrientationRuntimeState();
+}
+
 function exitAirMove() {
     if (airState !== 'AIR_MOVE') return;
 
@@ -185,6 +191,7 @@ function exitAirMove() {
     } else {
         log('Air: AIR_MOVE ended');
     }
+    stopAirMoveMotionPipeline();
     setAirStatus('IDLE');
 }
 
@@ -222,6 +229,7 @@ function cancelActiveAirGesture(reason: string) {
     }
 
     releaseAirPointerCapture();
+    stopAirMoveMotionPipeline();
     resetAirState();
 }
 

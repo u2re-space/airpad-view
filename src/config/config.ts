@@ -1257,7 +1257,7 @@ export const GYRO_SMOOTH = 0.3;       // сглаживание [0..1]
 export const GYRO_MAX_STEP = 25;       // максимум пикселей за тик
 export const GYRO_MAX_SAMPLE_COUNT = 1000; // размер окна для Monte Carlo калибровки
 export const GYRO_ROTATION_GAIN = 0.9; // коэффициент коррекции вращения (Z axis)
-export const MOTION_SEND_INTERVAL = motionIntervalMsForHz(120); // LAN max tier (~120 Hz)
+export const MOTION_SEND_INTERVAL = motionIntervalMsForHz(30); // LAN max tier (~120 Hz)
 export const MOTION_JITTER_EPS = 0.001; // минимальный порог (пикселей), чтобы гасить дрожание при отправке
 
 const airpadMotionPathHint = (): {
@@ -1314,7 +1314,7 @@ export const GRAVITY_CORRECTION_STRENGTH = 0.1; // сила коррекции �
 // Параметры RelativeOrientationSensor
 export const REL_ORIENT_DEADZONE = 0.001;   // отсечка дрожи по углам (рад)
 export const REL_ORIENT_GAIN = 600.0;       // чувствительность (пикс/рад) — чуть ниже для портретного
-export const REL_ORIENT_SMOOTH = 0.8;       // сглаживание [0..1]
+export const REL_ORIENT_SMOOTH = 0.55;
 export const REL_ORIENT_MAX_STEP = 60;      // максимум пикселей за тик
 export const REL_ORIENT_MAX_STEP_MAX = 800; // адаптивный максимум пикселей за тик
 export const REL_ORIENT_MAX_STEP_UP_RATE = 6;    // 1/s, скорость роста лимита
