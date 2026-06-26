@@ -310,7 +310,7 @@ export function initRelativeOrientation(): AirpadMotionSensorSource {
     }
 
     try {
-        relSensor = new (window as any).RelativeOrientationSensor({ frequency: 60, referenceFrame: 'device' });
+        relSensor = new (window as any).RelativeOrientationSensor({ frequency: 240, referenceFrame: 'device' });
     } catch (err: any) {
         log('Cannot create RelativeOrientationSensor: ' + (err?.message || err));
         relSensor = null;
