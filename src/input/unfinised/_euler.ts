@@ -112,6 +112,19 @@ export const quatMul = (a: Quat, b: Quat): Quat => {
     ];
 };
 
+
+export function quatMultiply(a, b) {
+    const ax = a[0], ay = a[1], az = a[2], aw = a[3];
+    const bx = b[0], by = b[1], bz = b[2], bw = b[3];
+
+    return [
+      aw * bx + ax * bw + ay * bz - az * by,
+      aw * by - ax * bz + ay * bw + az * bx,
+      aw * bz + ax * by - ay * bx + az * bw,
+      aw * bw - ax * bx - ay * by - az * bz
+    ];
+}
+
 export const TAU = Math.PI * 2;
 
 export const wrapPi = (angle: number): number => {
@@ -128,17 +141,46 @@ export const snapQuarterTurn = (angle: number): number => {
     return wrapPi(Math.round(angle / (Math.PI / 2)) * (Math.PI / 2));
 };
 
-export const quatNormalize = (q: Quat): Quat => {
-    const [x, y, z, w] = q;
-    const len = Math.hypot(x, y, z, w) || 1;
-    return [x / len, y / len, z / len, w / len];
-};
+export function quatNormalize(q: Quat): Quat {
+    const x = q[0], y = q[1], z = q[2], w = q[3];
+    const len = Math.hypot(x, y, z, w);
+    if (len === 0) return [0, 0, 0, 1];
+    return [
+        x / len,
+        y / len,
+        z / len,
+        w / len
+    ];
+}
 
 export const quatFromAxisAngle = (x: number, y: number, z: number, angle: number): Quat => {
     const half = angle * 0.5;
     const s = Math.sin(half);
     return [x * s, y * s, z * s, Math.cos(half)];
 };
+
+
+export function quatRotateVec3(q, v) {
+    const x = v[0], y = v[1], z = v[2];
+    const qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+
+    // t = 2 * cross(q.xyz, v)
+    const tx = 2 * (qy * z - qz * y);
+    const ty = 2 * (qz * x - qx * z);
+    const tz = 2 * (qx * y - qy * x);
+
+    // v' = v + qw * t + cross(q.xyz, t)
+    return {
+      x: x + qw * tx + (qy * tz - qz * ty),
+      y: y + qw * ty + (qz * tx - qx * tz),
+      z: z + qw * tz + (qx * ty - qy * tx)
+    };
+}
+
+export function quatInvertUnit(q: Quat): Quat {
+    return [-q[0], -q[1], -q[2], q[3]];
+}
+
 
 export const quatRotateVector = (q: Quat, v: Vector3): Vector3 => {
     const [x, y, z, w] = q;
@@ -267,7 +309,7 @@ export function mapToPixelsRaw(movement: Vector3, warpAngleRad = screenWarpAngle
     // Важно:
     // раньше XY вращались на selected.z, то есть на delta текущего тика.
     // Теперь XY вращаются на correction/warp angle от текущей позы телефона.
-    const projected = vec3RotateXYByAngle(selected, warpAngleRad, 1);
+    const projected = quatRotateVec3(selected, warpAngleRad/*, 1*/);
 
     return {
         x: projected.x * relDirX * REL_ORIENT_GAIN,
@@ -340,9 +382,8 @@ export function handleReading(quat: number[], dt: number): Vector3 {
     // Важно:
     // local delta: движение в системе телефона.
     // Потом мы его "варпаем" в экранную систему через warpAngleRad.
-    const deltaQuat = quatMul(quatConj(prevQuat), curQuat);
-
-    const deltaVec = quatDeltaToAxisAngle(deltaQuat);
+    const deltaQuat = quatMultiply(quatInvertUnit(prevQuat), curQuat);
+    const deltaVec = quatDeltaToAxisAngle(deltaQuat as Quat);
 
     if (vec3IsNearZero(deltaVec, REL_ORIENT_DEADZONE)) {
         const zeroDecayFactor = clamp01(expSmoothing(dt, REL_ORIENT_ZERO_DECAY_RATE));

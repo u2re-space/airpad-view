@@ -24,8 +24,9 @@ import {
 import {
     vec3Zero,
     vec3Clamp,
-    vec3Smooth,
     vec3IsNearZero,
+    vec3IsNearZeroMagnitude,
+    vec3SmoothRotationVector,
     vec3Select,
     type Vector3,
     vec3RotateXYByAngle,
@@ -112,6 +113,19 @@ export const quatMul = (a: Quat, b: Quat): Quat => {
     ];
 };
 
+
+export function quatMultiply(a, b) {
+    const ax = a[0], ay = a[1], az = a[2], aw = a[3];
+    const bx = b[0], by = b[1], bz = b[2], bw = b[3];
+
+    return [
+      aw * bx + ax * bw + ay * bz - az * by,
+      aw * by - ax * bz + ay * bw + az * bx,
+      aw * bz + ax * by - ay * bx + az * bw,
+      aw * bw - ax * bx - ay * by - az * bz
+    ];
+}
+
 export const TAU = Math.PI * 2;
 
 export const wrapPi = (angle: number): number => {
@@ -128,17 +142,46 @@ export const snapQuarterTurn = (angle: number): number => {
     return wrapPi(Math.round(angle / (Math.PI / 2)) * (Math.PI / 2));
 };
 
-export const quatNormalize = (q: Quat): Quat => {
-    const [x, y, z, w] = q;
-    const len = Math.hypot(x, y, z, w) || 1;
-    return [x / len, y / len, z / len, w / len];
-};
+export function quatNormalize(q: Quat): Quat {
+    const x = q[0], y = q[1], z = q[2], w = q[3];
+    const len = Math.hypot(x, y, z, w);
+    if (len === 0) return [0, 0, 0, 1];
+    return [
+        x / len,
+        y / len,
+        z / len,
+        w / len
+    ];
+}
 
 export const quatFromAxisAngle = (x: number, y: number, z: number, angle: number): Quat => {
     const half = angle * 0.5;
     const s = Math.sin(half);
     return [x * s, y * s, z * s, Math.cos(half)];
 };
+
+
+export function quatRotateVec3(q, v) {
+    const x = v[0], y = v[1], z = v[2];
+    const qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+
+    // t = 2 * cross(q.xyz, v)
+    const tx = 2 * (qy * z - qz * y);
+    const ty = 2 * (qz * x - qx * z);
+    const tz = 2 * (qx * y - qy * x);
+
+    // v' = v + qw * t + cross(q.xyz, t)
+    return {
+      x: x + qw * tx + (qy * tz - qz * ty),
+      y: y + qw * ty + (qz * tx - qx * tz),
+      z: z + qw * tz + (qx * ty - qy * tx)
+    };
+}
+
+export function quatInvertUnit(q: Quat): Quat {
+    return [-q[0], -q[1], -q[2], q[3]];
+}
+
 
 export const quatRotateVector = (q: Quat, v: Vector3): Vector3 => {
     const [x, y, z, w] = q;
@@ -167,12 +210,10 @@ export const getDisplayOrientationRad = (): number => {
 };
 
 /**
- * Correction angle для того, чтобы движение оставалось в экранном базисе,
- * даже если телефон повернули portrait/landscape.
- *
- * Берём device-up vector и смотрим, как он лежит в reference XY.
+ * Raw correction angle (continuous) for phone→screen basis tracking.
+ * Snap is applied only when mapping to pixels, not during smoothing.
  */
-export const getPhoneToScreenWarpAngle = (q: Quat): number => {
+export const getPhoneToScreenWarpAngleRaw = (q: Quat): number => {
     const up = quatRotateVector(q, { x: 0, y: 1, z: 0 });
 
     const planeMag = Math.hypot(up.x, up.y);
@@ -180,17 +221,21 @@ export const getPhoneToScreenWarpAngle = (q: Quat): number => {
         return screenWarpAngleRad;
     }
 
-    let angle = wrapPi(-Math.atan2(up.x, up.y) - getDisplayOrientationRad());
+    return wrapPi(-Math.atan2(up.x, up.y) - getDisplayOrientationRad());
+};
 
-    if (REL_ORIENT_WARP_SNAP_RIGHT_ANGLES) {
-        angle = snapQuarterTurn(angle);
-    }
+/** Snap warp angle to portrait/landscape cardinals for stable XY mapping. */
+export const snapWarpAngleForMapping = (angle: number): number => {
+    return REL_ORIENT_WARP_SNAP_RIGHT_ANGLES ? snapQuarterTurn(angle) : angle;
+};
 
-    return angle;
+/** @deprecated alias — prefer getPhoneToScreenWarpAngleRaw + snapWarpAngleForMapping */
+export const getPhoneToScreenWarpAngle = (q: Quat): number => {
+    return snapWarpAngleForMapping(getPhoneToScreenWarpAngleRaw(q));
 };
 
 export const updateScreenWarpAngle = (q: Quat, dt: number): number => {
-    const target = getPhoneToScreenWarpAngle(q);
+    const target = getPhoneToScreenWarpAngleRaw(q);
     const t = clamp01(expSmoothing(dt, REL_ORIENT_WARP_SMOOTH_RATE));
 
     screenWarpAngleRad = wrapPi(
@@ -264,10 +309,12 @@ export function mapToPixelsRaw(movement: Vector3, warpAngleRad = screenWarpAngle
         relSrcForMouseZ as 'ax' | 'ay' | 'az'
     );
 
-    // Важно:
-    // раньше XY вращались на selected.z, то есть на delta текущего тика.
-    // Теперь XY вращаются на correction/warp angle от текущей позы телефона.
-    const projected = vec3RotateXYByAngle(selected, warpAngleRad, 1);
+    // XY warp uses snapped cardinals; smoothing tracks the continuous raw angle.
+    const projected = vec3RotateXYByAngle(
+        selected,
+        snapWarpAngleForMapping(warpAngleRad),
+        1
+    );
 
     return {
         x: projected.x * relDirX * REL_ORIENT_GAIN,
@@ -328,7 +375,7 @@ export function handleReading(quat: number[], dt: number): Vector3 {
 
     if (!lastQuat) {
         lastQuat = curQuat;
-        screenWarpAngleRad = getPhoneToScreenWarpAngle(curQuat);
+        screenWarpAngleRad = getPhoneToScreenWarpAngleRaw(curQuat);
         return vec3Zero();
     }
 
@@ -340,16 +387,15 @@ export function handleReading(quat: number[], dt: number): Vector3 {
     // Важно:
     // local delta: движение в системе телефона.
     // Потом мы его "варпаем" в экранную систему через warpAngleRad.
-    const deltaQuat = quatMul(quatConj(prevQuat), curQuat);
+    const deltaQuat = quatMultiply(quatInvertUnit(prevQuat), curQuat);
+    const deltaVec = quatDeltaToAxisAngle(deltaQuat as Quat);
 
-    const deltaVec = quatDeltaToAxisAngle(deltaQuat);
-
-    if (vec3IsNearZero(deltaVec, REL_ORIENT_DEADZONE)) {
+    if (vec3IsNearZeroMagnitude(deltaVec, REL_ORIENT_DEADZONE)) {
         const zeroDecayFactor = clamp01(expSmoothing(dt, REL_ORIENT_ZERO_DECAY_RATE));
 
-        smoothedDelta = vec3Smooth(smoothedDelta, vec3Zero(), zeroDecayFactor);
+        smoothedDelta = vec3SmoothRotationVector(smoothedDelta, vec3Zero(), zeroDecayFactor);
 
-        if (vec3IsNearZero(smoothedDelta, REL_ORIENT_DEADZONE)) {
+        if (vec3IsNearZeroMagnitude(smoothedDelta, REL_ORIENT_DEADZONE)) {
             smoothedDelta = vec3Zero();
             return vec3Zero();
         }
@@ -375,7 +421,7 @@ export function handleReading(quat: number[], dt: number): Vector3 {
         expSmoothing(dt, smoothRate) * clamp01(REL_ORIENT_SMOOTH)
     );
 
-    smoothedDelta = vec3Smooth(smoothedDelta, deltaVec, smoothFactor * 0.9);
+    smoothedDelta = vec3SmoothRotationVector(smoothedDelta, deltaVec, smoothFactor * 0.9);
 
     const maxStepRad = maxStepPx / Math.max(1e-6, Math.abs(REL_ORIENT_GAIN));
 
@@ -384,21 +430,12 @@ export function handleReading(quat: number[], dt: number): Vector3 {
         Math.max(REL_ORIENT_DEADZONE, maxStepRad)
     );
 
-    const dz = {
-        x: Math.abs(smoothedDelta.x) < REL_ORIENT_DEADZONE ? 0 : smoothedDelta.x,
-        y: Math.abs(smoothedDelta.y) < REL_ORIENT_DEADZONE ? 0 : smoothedDelta.y,
-        z: Math.abs(smoothedDelta.z) < REL_ORIENT_DEADZONE ? 0 : smoothedDelta.z,
-    };
-
-    if (
-        Math.abs(dz.x) < MOTION_JITTER_EPS &&
-        Math.abs(dz.y) < MOTION_JITTER_EPS &&
-        Math.abs(dz.z) < MOTION_JITTER_EPS
-    ) {
+    if (vec3IsNearZeroMagnitude(smoothedDelta, REL_ORIENT_DEADZONE)) {
+        smoothedDelta = vec3Zero();
         return vec3Zero();
     }
 
-    const mapped = mapAndScale(dz, maxStepPx, warpAngleRad);
+    const mapped = mapAndScale(smoothedDelta, maxStepPx, warpAngleRad);
 
     if (vec3IsNearZero(mapped, MOTION_JITTER_EPS)) {
         return vec3Zero();
@@ -423,9 +460,12 @@ export async function requestMotionSensorPermission(): Promise<boolean> {
             return false;
         }
     }
-    return true;
+    const [accelerometerPermission, gyroscopePermission] = await Promise.all([
+        navigator.permissions.query({ name: "accelerometer" as PermissionName }),
+        navigator.permissions.query({ name: "gyroscope" as PermissionName }),
+    ]);
+    return accelerometerPermission.state === "granted" && gyroscopePermission.state === "granted";
 }
-
 
 export const startDeviceOrientationFallback = (): AirpadMotionSensorSource => {
     if (fallbackOrientationActive) return 'orientation-fallback';
@@ -454,9 +494,9 @@ export const startDeviceOrientationFallback = (): AirpadMotionSensorSource => {
         enqueueMotion(mapped.x, mapped.y, mapped.z);
     };
 
-    globalThis.addEventListener("deviceorientation", fallbackHandler as EventListener, {
+    /*globalThis.addEventListener("deviceorientation", fallbackHandler as EventListener, {
         passive: true,
-    });
+    });*/
 
     fallbackOrientationActive = true;
     setAirpadMotionActiveSource('orientation-fallback');
@@ -482,13 +522,13 @@ export function initRelativeOrientation(): AirpadMotionSensorSource {
     stopRelativeOrientation();
     resetRelativeOrientationRuntimeState();
 
-    if (!(window as any).RelativeOrientationSensor ) {
+    if (typeof RelativeOrientationSensor === 'undefined') {
         log('RelativeOrientationSensor API is not supported.');
         return startDeviceOrientationFallback();
     }
 
     try {
-        relSensor = new (window as any).RelativeOrientationSensor({ frequency: 240, referenceFrame: 'device' });
+        relSensor = new RelativeOrientationSensor({ frequency: 60, referenceFrame: 'device' });
     } catch (err: any) {
         log('Cannot create RelativeOrientationSensor: ' + (err?.message || err));
         relSensor = null;

@@ -14,12 +14,12 @@ assert.ok(
 );
 
 assert.ok(
-    /if\s*\(vec3IsNearZero\(deltaVec,\s*REL_ORIENT_DEADZONE\)\)/m.test(source),
+    /if\s*\(vec3IsNearZeroMagnitude\(deltaVec,\s*REL_ORIENT_DEADZONE\)\)/m.test(source),
     "relative orientation must detect zero/newly-stopped frame deltas"
 );
 
 assert.ok(
-    /smoothedDelta\s*=\s*vec3Smooth\(smoothedDelta,\s*vec3Zero\(\),\s*zeroDecayFactor\)/m.test(source),
+    /smoothedDelta\s*=\s*vec3SmoothRotationVector\(smoothedDelta,\s*vec3Zero\(\),\s*zeroDecayFactor\)/m.test(source),
     "relative orientation must not keep sending the previous smoothed diff forever"
 );
 

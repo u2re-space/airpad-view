@@ -155,6 +155,43 @@ export function vec3Smooth(current: Vector3, target: Vector3, factor: number = 0
     return vec3Mix(current, target, factor);
 }
 
+/** Magnitude-based near-zero (for rotation vectors where per-axis checks mis-fire). */
+export function vec3IsNearZeroMagnitude(v: Vector3, epsilon: number = 0.01): boolean {
+    const e = Math.abs(n0(epsilon) || 0.01);
+    return Math.hypot(n0(v.x), n0(v.y), n0(v.z)) < e;
+}
+
+/**
+ * Pick the equivalent rotation-vector target closest to `from`.
+ * Rotation vectors r and -r can represent nearby orientations across the π wrap;
+ * linear smoothing without this flip causes cursor reversal at dead zones.
+ */
+export function vec3ShortestRotationTarget(from: Vector3, to: Vector3): Vector3 {
+    const fx = n0(from.x);
+    const fy = n0(from.y);
+    const fz = n0(from.z);
+    let tx = n0(to.x);
+    let ty = n0(to.y);
+    let tz = n0(to.z);
+
+    if (fx * tx + fy * ty + fz * tz < 0) {
+        tx = -tx;
+        ty = -ty;
+        tz = -tz;
+    }
+
+    return { x: tx, y: ty, z: tz };
+}
+
+/** Angle-aware smoothing for axis-angle / rotation-vector deltas. */
+export function vec3SmoothRotationVector(
+    current: Vector3,
+    target: Vector3,
+    factor: number = 0.25
+): Vector3 {
+    return vec3Mix(current, vec3ShortestRotationTarget(current, target), factor);
+}
+
 //
 export function vec3Normalize(v: Vector3, dt: number = 0.1): Vector3 {
     const denom = Math.max(0.000001, Math.abs(n0(dt)) || 0.000001);
@@ -258,3 +295,188 @@ export function vec3AngleDelta(current: Vector3, base: Vector3): Vector3 {
         z: angleDelta(n0(current.z), n0(base.z)),
     };
 }
+
+// Quaternion helpers
+export type Quat = [number, number, number, number];
+
+// Normalize with stability: keep sign consistent with previous to avoid hemisphere flips
+export const quatNormalizeStable = (q: Quat, prev: Quat | null): Quat => {
+    const [x, y, z, w] = q;
+    const len = Math.hypot(x, y, z, w) || 1;
+    let nx = x / len, ny = y / len, nz = z / len, nw = w / len;
+    if (prev) {
+        const dot = nx * prev[0] + ny * prev[1] + nz * prev[2] + nw * prev[3];
+        if (dot < 0) {
+            nx = -nx; ny = -ny; nz = -nz; nw = -nw;
+        }
+    }
+    return [nx, ny, nz, nw];
+};
+
+export const quatConj = (q: Quat): Quat => {
+    const [x, y, z, w] = q;
+    return [-x, -y, -z, w];
+};
+
+export const quatMul = (a: Quat, b: Quat): Quat => {
+    const [ax, ay, az, aw] = a;
+    const [bx, by, bz, bw] = b;
+    return [
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+        aw * bw - ax * bx - ay * by - az * bz,
+    ];
+};
+
+
+export function quatMultiply(a, b) {
+    const ax = a[0], ay = a[1], az = a[2], aw = a[3];
+    const bx = b[0], by = b[1], bz = b[2], bw = b[3];
+
+    return [
+      aw * bx + ax * bw + ay * bz - az * by,
+      aw * by - ax * bz + ay * bw + az * bx,
+      aw * bz + ax * by - ay * bx + az * bw,
+      aw * bw - ax * bx - ay * by - az * bz
+    ];
+}
+
+export const TAU = Math.PI * 2;
+
+export const wrapPi = (angle: number): number => {
+    angle = (angle + Math.PI) % TAU;
+    if (angle < 0) angle += TAU;
+    return angle - Math.PI;
+};
+
+export const angleDeltaRad = (current: number, previous: number): number => {
+    return wrapPi(current - previous);
+};
+
+export const snapQuarterTurn = (angle: number): number => {
+    return wrapPi(Math.round(angle / (Math.PI / 2)) * (Math.PI / 2));
+};
+
+export function quatNormalize(q: Quat): Quat {
+    const x = q[0], y = q[1], z = q[2], w = q[3];
+    const len = Math.hypot(x, y, z, w);
+    if (len === 0) return [0, 0, 0, 1];
+    return [
+        x / len,
+        y / len,
+        z / len,
+        w / len
+    ];
+}
+
+export const quatFromAxisAngle = (x: number, y: number, z: number, angle: number): Quat => {
+    const half = angle * 0.5;
+    const s = Math.sin(half);
+    return [x * s, y * s, z * s, Math.cos(half)];
+};
+
+
+export function quatRotateVec3(q, v) {
+    const x = v[0], y = v[1], z = v[2];
+    const qx = q[0], qy = q[1], qz = q[2], qw = q[3];
+
+    // t = 2 * cross(q.xyz, v)
+    const tx = 2 * (qy * z - qz * y);
+    const ty = 2 * (qz * x - qx * z);
+    const tz = 2 * (qx * y - qy * x);
+
+    // v' = v + qw * t + cross(q.xyz, t)
+    return {
+      x: x + qw * tx + (qy * tz - qz * ty),
+      y: y + qw * ty + (qz * tx - qx * tz),
+      z: z + qw * tz + (qx * ty - qy * tx)
+    };
+}
+
+export function quatInvertUnit(q: Quat): Quat {
+    return [-q[0], -q[1], -q[2], q[3]];
+}
+
+
+export const quatRotateVector = (q: Quat, v: Vector3): Vector3 => {
+    const [x, y, z, w] = q;
+
+    // t = 2 * cross(q.xyz, v)
+    const tx = 2 * (y * v.z - z * v.y);
+    const ty = 2 * (z * v.x - x * v.z);
+    const tz = 2 * (x * v.y - y * v.x);
+
+    // v' = v + w * t + cross(q.xyz, t)
+    return {
+        x: v.x + w * tx + (y * tz - z * ty),
+        y: v.y + w * ty + (z * tx - x * tz),
+        z: v.z + w * tz + (x * ty - y * tx),
+    };
+};
+
+export const getDisplayOrientationRad = (): number => {
+    const angle = Number(
+        globalThis.screen?.orientation?.angle ??
+        (globalThis as any).orientation ??
+        0
+    );
+
+    return Number.isFinite(angle) ? (angle * Math.PI) / 180 : 0;
+};
+
+/**
+ * DeviceOrientationEvent fallback: alpha/beta/gamma -> quaternion.
+ * Порядок DeviceOrientation: Z-X-Y.
+ */
+export const deviceOrientationEulerToQuat = (
+    alphaDeg: number,
+    betaDeg: number,
+    gammaDeg: number
+): Quat => {
+    const d = Math.PI / 180;
+
+    const alpha = alphaDeg * d;
+    const beta = betaDeg * d;
+    const gamma = gammaDeg * d;
+
+    const qz = quatFromAxisAngle(0, 0, 1, alpha);
+    const qx = quatFromAxisAngle(1, 0, 0, beta);
+    const qy = quatFromAxisAngle(0, 1, 0, gamma);
+
+    return quatNormalize(quatMul(quatMul(qz, qx), qy));
+};
+
+export const quatDeltaToAxisAngle = (dqRaw: Quat): Vector3 => {
+    let [x, y, z, w] = quatNormalize(dqRaw);
+
+    // Shortest path: не даём quaternion delta внезапно идти длинной дугой.
+    if (w < 0) {
+        x = -x;
+        y = -y;
+        z = -z;
+        w = -w;
+    }
+
+    w = Math.max(-1, Math.min(1, w));
+
+    const sinHalf = Math.hypot(x, y, z);
+
+    if (sinHalf < 1e-6) {
+        // small-angle approximation
+        return {
+            x: 2 * x,
+            y: 2 * y,
+            z: 2 * z,
+        };
+    }
+
+    const angle = 2 * Math.atan2(sinHalf, w);
+    const k = angle / sinHalf;
+
+    return {
+        x: x * k,
+        y: y * k,
+        z: z * k,
+    };
+};
