@@ -1,5 +1,6 @@
 import { log } from '../../utils/utils.ts';
 import { enqueueMotion } from '../../config/motion-state.ts';
+import { recordAirpadMotionSensorSample, setAirpadMotionActiveSource, type AirpadMotionSensorSource } from '../../config/motion-diagnostics.ts';
 import { aiModeActive } from '../speech.ts';
 import { getAirState } from '../../ui/air-button.ts';
 import {
@@ -41,7 +42,7 @@ let fallbackHandler: ((event: DeviceOrientationEvent) => void) | null = null;
 let lastQuat: [number, number, number, number] | null = null;
 let smoothedDelta: Vector3 = vec3Zero(); // smoothed small-angle delta
 let dynamicMaxStepPx: number = REL_ORIENT_MAX_STEP; // adaptive clamp radius in pixels/tick
-const REL_ORIENT_ZERO_DECAY_RATE = 200;
+const REL_ORIENT_ZERO_DECAY_RATE = 420;
 
 export function resetRelativeOrientationRuntimeState() {
     lastQuat = null;
@@ -237,8 +238,8 @@ export async function requestMotionSensorPermission(): Promise<boolean> {
     return true;
 }
 
-const startDeviceOrientationFallback = (): void => {
-    if (fallbackOrientationActive) return;
+const startDeviceOrientationFallback = (): AirpadMotionSensorSource => {
+    if (fallbackOrientationActive) return 'orientation-fallback';
     let lastTs = performance.now();
     let lastEuler: { x: number; y: number; z: number } | null = null;
 
@@ -276,30 +277,36 @@ const startDeviceOrientationFallback = (): void => {
             if (getAirState && getAirState() !== 'AIR_MOVE') return;
             if (aiModeActive) return;
             if (vec3IsNearZero(mapped, MOTION_JITTER_EPS)) return;
+            recordAirpadMotionSensorSample('orientation-fallback');
             enqueueMotion(mapped.x, mapped.y, mapped.z);
         };
 
     globalThis.addEventListener("deviceorientation", fallbackHandler as EventListener, { passive: true });
     fallbackOrientationActive = true;
+    setAirpadMotionActiveSource('orientation-fallback');
     log("RelativeOrientation fallback active (deviceorientation)");
+    return 'orientation-fallback';
 };
 
 /**
  * (Re)start motion sensors after the Air hold gesture — required on Android/Capacitor
  * where Generic Sensor API start() fails without user activation.
  */
-export async function ensureAirMoveMotionSensors(): Promise<void> {
-    await requestMotionSensorPermission();
-    initRelativeOrientation();
+export async function ensureAirMoveMotionSensors(): Promise<AirpadMotionSensorSource> {
+    const permitted = await requestMotionSensorPermission();
+    if (!permitted) {
+        setAirpadMotionActiveSource('none');
+        return 'none';
+    }
+    return initRelativeOrientation();
 }
 
-export function initRelativeOrientation() {
+export function initRelativeOrientation(): AirpadMotionSensorSource {
     stopRelativeOrientation();
 
     if (!(window as any).RelativeOrientationSensor ) {
         log('RelativeOrientationSensor API is not supported.');
-        startDeviceOrientationFallback();
-        return;
+        return startDeviceOrientationFallback();
     }
 
     try {
@@ -307,8 +314,7 @@ export function initRelativeOrientation() {
     } catch (err: any) {
         log('Cannot create RelativeOrientationSensor: ' + (err?.message || err));
         relSensor = null;
-        startDeviceOrientationFallback();
-        return;
+        return startDeviceOrientationFallback();
     }
 
     let lastTs = performance.now();
@@ -326,6 +332,7 @@ export function initRelativeOrientation() {
 
         // Accumulate into unified motion queue
         if (vec3IsNearZero(mapped, MOTION_JITTER_EPS)) return;
+        recordAirpadMotionSensorSample('relative');
         enqueueMotion(mapped.x, mapped.y, mapped.z);
     });
 
@@ -336,9 +343,11 @@ export function initRelativeOrientation() {
 
     try {
         relSensor.start();
+        setAirpadMotionActiveSource('relative');
         log('RelativeOrientationSensor started (60 Hz)');
+        return 'relative';
     } catch (err: any) {
         log('RelativeOrientationSensor start failed: ' + (err?.message || err));
-        startDeviceOrientationFallback();
+        return startDeviceOrientationFallback();
     }
 }

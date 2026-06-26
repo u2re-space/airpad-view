@@ -4,6 +4,7 @@
 
 import { log } from '../../utils/utils.ts';
 import { enqueueMotion } from '../../config/motion-state.ts';
+import { recordAirpadMotionSensorSample } from '../../config/motion-diagnostics.ts';
 import { getAirState, setMotionCalibrated } from '../../ui/air-button.ts';
 import { ACCELEROMETER_DEADZONE, ACCELEROMETER_GAIN, ACCELEROMETER_SMOOTH, ACCELEROMETER_MAX_SAMPLE_COUNT, GRAVITY_CORRECTION_STRENGTH, accelSrcForMouseX, accelSrcForMouseY, accelSrcForMouseZ, accelDirX, accelDirY, accelDirZ } from '../../config/config.ts';
 import { vec3Zero, vec3FromSensor, vec3Sub, vec3Scale, type Vector3, vec3Mix, vec3Smooth, vec3Add, vec3DeadZone, vec3IsNearZero, vec3Select } from '../../utils/math.ts';
@@ -167,6 +168,7 @@ let sendWSMovement = (movement: Vector3) => {
     if (Math.abs(mappedMovement.z) < ACCELEROMETER_DEADZONE) mappedMovement.z = 0;
     if (mappedMovement.x === 0 && mappedMovement.y === 0 && mappedMovement.z === 0) return;
 
+    recordAirpadMotionSensorSample('accelerometer');
     enqueueMotion(mappedMovement.x, mappedMovement.y, mappedMovement.z);
 }
 

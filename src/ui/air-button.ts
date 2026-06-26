@@ -9,6 +9,7 @@ import { TAP_THRESHOLD, MOVE_TAP_THRESHOLD, SWIPE_THRESHOLD } from '../config/co
 import { onEnterAirMove as gyroOnEnterAirMove, ensureGyroscopeActive } from '../input/unfinised/gyroscope';
 import { onEnterAirMove as accelOnEnterAirMove, ensureAccelerometerActive } from '../input/unfinised/accelerometer';
 import { ensureAirMoveMotionSensors, resetRelativeOrientationRuntimeState } from '../input/sensor/relative-orientation';
+import { setAirpadMotionActiveSource } from '../config/motion-diagnostics';
 import { resetMotionAccum, flushMotionNow } from '../config/motion-state';
 
 export type AirState = 'IDLE' | 'WAIT_TAP_OR_HOLD' | 'AIR_MOVE' | 'GESTURE_SWIPE';
@@ -139,9 +140,16 @@ export function resetAirState() {
 // ========== Air Move (Cursor Control via Sensors) ==========
 
 function startJsAirMoveSensors() {
+    void ensureAirMoveMotionSensors().then((source) => {
+        if (source === 'relative' || source === 'orientation-fallback') return;
+        setAirpadMotionActiveSource('gyro');
+        startLegacyAirMoveSensors();
+    });
+}
+
+function startLegacyAirMoveSensors() {
     gyroOnEnterAirMove();
     accelOnEnterAirMove();
-    void ensureAirMoveMotionSensors();
     ensureGyroscopeActive();
     ensureAccelerometerActive();
 }

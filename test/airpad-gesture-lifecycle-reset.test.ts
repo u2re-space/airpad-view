@@ -25,4 +25,14 @@ assert.ok(
     "lifecycle cancellation must release drag and return Air state to IDLE"
 );
 
+assert.ok(
+    /startJsAirMoveSensors[\s\S]*?ensureAirMoveMotionSensors\(\)\.then\(\(source\)[\s\S]*?source === 'relative' \|\| source === 'orientation-fallback'[\s\S]*?startLegacyAirMoveSensors\(\);/m.test(source),
+    "AirMove must prefer one RelativeOrientation source and start gyro/accelerometer only as fallback"
+);
+
+assert.ok(
+    !/gyroOnEnterAirMove\(\);[\s\S]*?accelOnEnterAirMove\(\);[\s\S]*?ensureAirMoveMotionSensors\(\);/m.test(source),
+    "AirMove must not start gyro, accelerometer, and relative-orientation in parallel"
+);
+
 console.info("airpad gesture lifecycle reset regression ok");

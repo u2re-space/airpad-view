@@ -8,6 +8,10 @@ assert.ok(
     /REL_ORIENT_ZERO_DECAY_RATE/.test(source),
     "relative orientation must decay smoothed delta toward zero when sensor delta stops"
 );
+assert.ok(
+    /const REL_ORIENT_ZERO_DECAY_RATE = 420;/.test(source),
+    "relative orientation zero-decay must be aggressive enough to avoid stop-tail inertia"
+);
 
 assert.ok(
     /if\s*\(vec3IsNearZero\(deltaVec,\s*REL_ORIENT_DEADZONE\)\)/m.test(source),
@@ -22,6 +26,11 @@ assert.ok(
 assert.ok(
     /if\s*\(vec3IsNearZero\(mapped,\s*MOTION_JITTER_EPS\)\)\s*return;/m.test(source),
     "Generic Sensor reading path must skip zero mapped movement"
+);
+
+assert.ok(
+    source.includes("recordAirpadMotionSensorSample('relative')"),
+    "relative orientation path must record active sensor diagnostics"
 );
 
 console.info("airpad relative orientation inertia regression ok");

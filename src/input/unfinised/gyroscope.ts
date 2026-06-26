@@ -4,6 +4,7 @@
 
 import { log } from '../../utils/utils.ts';
 import { enqueueMotion } from '../../config/motion-state.ts';
+import { recordAirpadMotionSensorSample } from '../../config/motion-diagnostics.ts';
 import { aiModeActive } from '../speech.ts';
 import { getAirState, isMotionCalibrated, setMotionCalibrated, resetMotionBaseline } from '../../ui/air-button.ts';
 import { ANGLE_DEADZONE, ANGLE_GAIN, ANGLE_SMOOTH, ANGLE_MAX_STEP, MOTION_SEND_INTERVAL, gyroDirX, gyroDirY, gyroDirZ, gyroSrcForMouseX, gyroSrcForMouseY, gyroSrcForMouseZ, GYRO_DEADZONE, GYRO_GAIN, GYRO_SMOOTH, GYRO_MAX_SAMPLE_COUNT, GYRO_ROTATION_GAIN, GRAVITY_CORRECTION_STRENGTH } from '../../config/config.ts';
@@ -212,6 +213,7 @@ let sendWSGyroMovement = (movement: Vector3) => {
     const jy = Math.abs(clampedMovement.y) < GYRO_DEADZONE ? 0 : clampedMovement.y;
     const jz = Math.abs(clampedMovement.z) < GYRO_DEADZONE ? 0 : clampedMovement.z;
     if (jx === 0 && jy === 0 && jz === 0) return;
+    recordAirpadMotionSensorSample('gyro');
     enqueueMotion(jx, jy, jz);
 }
 

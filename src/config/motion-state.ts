@@ -4,6 +4,7 @@
 
 import { getMotionSendIntervalMs, recordMotionSendSample, MOTION_JITTER_EPS } from './config';
 import { sendAirPadIntent } from '../network/session';
+import { recordAirpadMotionSend } from './motion-diagnostics';
 import { createMotionFlushGate } from './motion-rate-gate';
 import { quantizeMotionFlush, type MotionAccum } from './motion-quantize';
 
@@ -22,6 +23,7 @@ function emitMotionNow(): boolean {
     const motion = quantizeMotionFlush(accum);
     if (!motion) return false;
     recordMotionSendSample();
+    recordAirpadMotionSend();
     sendAirPadIntent({
         type: 'pointer.move',
         dx: motion.dx,
