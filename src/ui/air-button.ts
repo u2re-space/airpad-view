@@ -2,13 +2,23 @@
 // Air-кнопка: pointer + жесты + AirMove (Trackball/Touchpad)
 // =========================
 
+/*
+ * Filename: air-button.ts
+ * FullPath: modules/views/airpad-view/src/ui/air-button.ts
+ * Change date and time: 16.30.00_10.07.2026
+ * Reason for changes: Pass-II cycle break — import motion/speech from input-old
+ *   (canonical impl) instead of the new input/* facades. WHY: input-old sensors
+ *   already import this module for getAirState; routing back through input/*
+ *   facades re-entered the facade layer (facade → old → ui → facade).
+ * INVARIANT: public app entrypoints (main/index) still import via src/input/*.
+ */
 import { log, getAirButton, getAirNeighborButton, getAirStatusEl } from '../utils/utils';
 import { connectAirPadSession, sendAirPadIntent } from '../network/session';
-import { checkIsAiModeActive } from '../input/speech';
+import { checkIsAiModeActive } from '../input-old/speech';
 import { TAP_THRESHOLD, MOVE_TAP_THRESHOLD, SWIPE_THRESHOLD } from '../config/config';
-import { onEnterAirMove as gyroOnEnterAirMove, ensureGyroscopeActive } from '../input/unfinised/gyroscope';
-import { onEnterAirMove as accelOnEnterAirMove, ensureAccelerometerActive } from '../input/unfinised/accelerometer';
-import { ensureAirMoveMotionSensors, resetRelativeOrientationRuntimeState } from '../input/sensor/relative-orientation';
+import { onEnterAirMove as gyroOnEnterAirMove, ensureGyroscopeActive } from '../input-old/unfinised/gyroscope';
+import { onEnterAirMove as accelOnEnterAirMove, ensureAccelerometerActive } from '../input-old/unfinised/accelerometer';
+import { ensureAirMoveMotionSensors, resetRelativeOrientationRuntimeState } from '../input-old/sensor/relative-orientation';
 import { setAirpadMotionActiveSource } from '../config/motion-diagnostics';
 import { resetMotionAccum, flushMotionNow } from '../config/motion-state';
 

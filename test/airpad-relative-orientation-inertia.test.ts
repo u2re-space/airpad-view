@@ -9,6 +9,7 @@ import { resolve } from "node:path";
 // (vec3SmoothRotationVector / vec3IsNearZeroMagnitude / recordAirpadMotionSensorSample
 // diagnostics), which currently lives in src/input-old/sensor/broken.ts. Until that
 // variant is promoted into relative-orientation.ts, this regression stays RED by design.
+// Run via `npm run test:regression:known-red`. Stable gate: `npm run test:regression:stable`.
 const source = readFileSync(resolve("src/input-old/sensor/relative-orientation.ts"), "utf8");
 
 assert.ok(

@@ -13,7 +13,10 @@
     "dev": "vite --host 0.0.0.0",
     "demo": "npm run dev",
     "test": "vite build --config vite.config.js --mode test",
-    "test:regression": "npx tsx test/airpad-facade-subpaths.test.ts && npx tsx test/airpad-connect-non-destructive.test.ts && npx tsx test/airpad-gesture-lifecycle-reset.test.ts && npx tsx test/airpad-init-preconnect.test.ts && npx tsx test/airpad-input-v3-client-contract.test.ts && npx tsx test/airpad-packet-motion-metadata.test.ts && npx tsx test/airpad-quick-target-route.test.ts && npx tsx test/airpad-relative-orientation-inertia.test.ts && npx tsx test/motion-state-quantize.test.ts && npx tsx test/motion-state-rate-gate.test.ts",
+    "test:facade": "npx tsx test/airpad-facade-subpaths.test.ts",
+    "test:regression:stable": "npx tsx test/airpad-facade-subpaths.test.ts && npx tsx test/airpad-connect-non-destructive.test.ts && npx tsx test/airpad-gesture-lifecycle-reset.test.ts && npx tsx test/airpad-init-preconnect.test.ts && npx tsx test/airpad-input-v3-client-contract.test.ts && npx tsx test/airpad-packet-motion-metadata.test.ts && npx tsx test/airpad-quick-target-route.test.ts && npx tsx test/motion-state-quantize.test.ts && npx tsx test/motion-state-rate-gate.test.ts",
+    "test:regression:known-red": "npx tsx test/airpad-relative-orientation-inertia.test.ts",
+    "test:regression": "npm run test:regression:stable && npm run test:regression:known-red",
     "build": "vite build --config vite.config.js",
     "preview": "vite preview"
   },

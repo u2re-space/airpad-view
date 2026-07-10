@@ -1,14 +1,16 @@
 /*
  * Filename: airpad-facade-subpaths.test.ts
  * FullPath: modules/views/airpad-view/test/airpad-facade-subpaths.test.ts
- * Change date and time: 14.25.00_10.07.2026
+ * Change date and time: 16.32.00_10.07.2026
  * Reason for changes: Pass-II migration guard — proves the src/input and src/network
- *   public facade subpaths resolve to real files (not broken CWSP-reborn symlinks)
- *   and re-export the canonical input-old/network-old modules.
+ *   public facade subpaths resolve to real files (not broken CWSP-reborn symlinks),
+ *   re-export the canonical input-old/network-old modules, and (for Node-loadable
+ *   leaf modules) are actually importable with matching export bindings.
  */
 import assert from "node:assert/strict";
 import { existsSync, lstatSync, readFileSync } from "node:fs";
 import { relative, resolve, sep } from "node:path";
+import { pathToFileURL } from "node:url";
 
 /*
  * WHY: each entry is a public import path consumed by app code (src/main.ts,
@@ -41,11 +43,60 @@ const FACADE_MAP: Array<{ facade: string; old: string }> = [
     { facade: "src/network/transport/websocket.ts", old: "src/network-old/transport/websocket.ts" },
 ];
 
+/*
+ * NOTE: full network/session and sensor stacks pull Vite aliases (`shared`,
+ * `com/config/Settings`, …) that Node/tsx does not resolve. Import-contract
+ * coverage therefore targets leaf modules that load under plain tsx.
+ * COMPAT: intents is types-only at runtime (empty export object) — import must
+ * still succeed.
+ */
+const IMPORTABLE_FACADE_CONTRACTS: Array<{
+    facade: string;
+    old: string;
+    requiredExports: string[];
+}> = [
+    {
+        facade: "src/network/intents.ts",
+        old: "src/network-old/intents.ts",
+        requiredExports: [],
+    },
+    {
+        facade: "src/input/keyboard/constants.ts",
+        old: "src/input-old/keyboard/constants.ts",
+        requiredExports: ["EMOJI_CATEGORIES", "KEYBOARD_LAYOUT", "KEYBOARD_LAYOUT_UPPER"],
+    },
+    {
+        facade: "src/input/keyboard/state.ts",
+        old: "src/input-old/keyboard/state.ts",
+        requiredExports: [
+            "setKeyboardVisible",
+            "isKeyboardVisible",
+            "setRemoteKeyboardEnabled",
+            "isRemoteKeyboardEnabled",
+        ],
+    },
+    {
+        facade: "src/input/keyboard/api.ts",
+        old: "src/input-old/keyboard/api.ts",
+        requiredExports: ["initVirtualKeyboardAPI", "getVirtualKeyboardAPI", "hasVirtualKeyboardAPI"],
+    },
+    {
+        facade: "src/input/unfinised/gravity-sensor.ts",
+        old: "src/input-old/unfinised/gravity-sensor.ts",
+        requiredExports: [
+            "getGravityVector",
+            "initGravitySensor",
+            "resetGravitySensor",
+            "applyDimensionalCorrection",
+        ],
+    },
+];
+
 const projectRoot = resolve(".");
 
 for (const { facade, old } of FACADE_MAP) {
-    const facadePath = resolve(facade);
-    const oldPath = resolve(old);
+    const facadePath = resolve(projectRoot, facade);
+    const oldPath = resolve(projectRoot, old);
 
     // INVARIANT: facade must be a real file, not a dangling symlink into CWSP-reborn stubs.
     assert.ok(existsSync(facadePath), `facade ${facade} must exist`);
@@ -55,12 +106,67 @@ for (const { facade, old } of FACADE_MAP) {
     assert.ok(existsSync(oldPath), `canonical ${old} must exist for facade ${facade}`);
 
     // COMPAT: facade must re-export the -old module (single source of truth, no behavior clone).
+    // Extensionless relative specifiers are required (moduleResolution: bundler).
     const facadeSource = readFileSync(facadePath, "utf8");
-    const expectedTarget = relative(resolve(facade, ".."), oldPath.replace(/\.ts$/, "")).split(sep).join("/");
+    const expectedTarget = relative(resolve(facadePath, ".."), oldPath.replace(/\.ts$/, "")).split(sep).join("/");
     assert.ok(
         new RegExp(`export\\s+\\*\\s+from\\s+['"]${expectedTarget.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}['"]`).test(facadeSource),
         `facade ${facade} must re-export from ${expectedTarget}`
     );
+    assert.ok(
+        !/\.ts['"]\s*;?\s*$/m.test(facadeSource.match(/export\s+\*\s+from\s+['"][^'"]+['"]/)?.[0] ?? ""),
+        `facade ${facade} must use extensionless relative re-export (bundler resolution)`
+    );
 }
 
-console.info("airpad facade subpaths resolve regression ok");
+for (const { facade, old, requiredExports } of IMPORTABLE_FACADE_CONTRACTS) {
+    const facadeUrl = pathToFileURL(resolve(projectRoot, facade)).href;
+    const oldUrl = pathToFileURL(resolve(projectRoot, old)).href;
+    const facadeMod = await import(facadeUrl);
+    const oldMod = await import(oldUrl);
+
+    for (const name of requiredExports) {
+        assert.ok(name in facadeMod, `facade ${facade} must export ${name}`);
+        assert.equal(
+            facadeMod[name],
+            oldMod[name],
+            `facade ${facade} export ${name} must be the same binding as ${old}`
+        );
+    }
+
+    // INVARIANT: export * must not invent extra runtime keys beyond the -old module.
+    const facadeKeys = Object.keys(facadeMod).sort();
+    const oldKeys = Object.keys(oldMod).sort();
+    assert.deepEqual(
+        facadeKeys,
+        oldKeys,
+        `facade ${facade} runtime export keys must match ${old}`
+    );
+}
+
+// Cycle hygiene: ui/air-button must not re-enter the new input/* facade layer for
+// modules that input-old already imports (speech / sensors). Public entrypoints
+// (main/index) still use src/input/* — that is intentional.
+const airButtonSource = readFileSync(resolve(projectRoot, "src/ui/air-button.ts"), "utf8");
+assert.ok(
+    /from\s+['"]\.\.\/input-old\/speech['"]/.test(airButtonSource),
+    "air-button must import speech from input-old to avoid facade↔ui cycles"
+);
+assert.ok(
+    /from\s+['"]\.\.\/input-old\/sensor\/relative-orientation['"]/.test(airButtonSource),
+    "air-button must import relative-orientation from input-old to avoid facade↔ui cycles"
+);
+assert.ok(
+    /from\s+['"]\.\.\/input-old\/unfinised\/gyroscope['"]/.test(airButtonSource),
+    "air-button must import gyroscope from input-old to avoid facade↔ui cycles"
+);
+assert.ok(
+    /from\s+['"]\.\.\/input-old\/unfinised\/accelerometer['"]/.test(airButtonSource),
+    "air-button must import accelerometer from input-old to avoid facade↔ui cycles"
+);
+assert.ok(
+    !/from\s+['"]\.\.\/input\/(speech|sensor\/relative-orientation|unfinised\/(?:gyroscope|accelerometer))['"]/.test(airButtonSource),
+    "air-button must not import cyclic motion modules via the new input/* facades"
+);
+
+console.info("airpad facade subpaths resolve + import contract ok");
