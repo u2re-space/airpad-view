@@ -659,7 +659,10 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     const socket = core?.socket;
     const interop = core?.interop;
     coreIdentityBridgeUserId = sanitizeFleetSelfWireNodeId(core?.userId) || "";
-    coreIdentityBridgeUserKey = (core?.userKey || "").trim();
+    // WHY: ecosystem token replaced separate userKey/accessToken fields; AirPad WS auth must follow.
+    coreIdentityBridgeUserKey = String(
+        (core as any)?.ecosystemToken || core?.userKey || core?.socket?.accessToken || ""
+    ).trim();
     coreIdentityUseForAirpad = (core?.useCoreIdentityForAirPad ?? true) !== false;
     shellRemoteClipboardEnabled = (shell?.enableRemoteClipboardBridge ?? true) !== false;
     shellApplyRemoteToDevice = (shell?.applyRemoteClipboardToDevice ?? true) !== false;
@@ -685,6 +688,10 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
         sanitizeFleetRouteTarget(routeRaw, core?.endpointUrl) ||
         (isAssociableFleetWireNodeId(routeRaw) ? normalizeWireNodeId(routeRaw) : "");
     coreSocketSelfId = sanitizeFleetSelfWireNodeId(socket?.selfId) || "";
+    // Prefer Settings Client id over a stale socket.selfId that would otherwise win handshake.
+    if (coreIdentityBridgeUserId && coreSocketSelfId && coreSocketSelfId !== coreIdentityBridgeUserId) {
+        coreSocketSelfId = "";
+    }
     coreSocketAccessToken = (socket?.accessToken || socket?.airpadAuthToken || "").trim();
     coreSocketClientAccessToken = (socket?.clientAccessToken || "").trim();
     coreSocketTransportMode = socket?.transportMode === "secure" ? "secure" : "plaintext";
@@ -1135,9 +1142,11 @@ export function setAirPadAuthToken(token: string): void {
 }
 
 export function getAirPadClientId(): string {
+    // WHY: Settings "Client id" (core.userId → coreIdentityBridgeUserId) is the user-facing source.
+    // socket.selfId / AirPad popup clientId must not preempt it when core.userId is set.
     const candidates = [
-        coreSocketSelfId.trim(),
         coreIdentityUseForAirpad ? coreIdentityBridgeUserId.trim() : "",
+        coreSocketSelfId.trim(),
         remoteConfig.clientId.trim(),
         readGlobalAirpadValue(["AIRPAD_CLIENT_ID", "AIRPAD_CLIENT"])
     ];
