@@ -2,7 +2,10 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-const source = readFileSync(resolve("src/network/rails/packet-ws.ts"), "utf8");
+// WHY: src/network/rails/packet-ws.ts is now a Pass-II facade re-exporting the
+// canonical implementation in src/network-old/rails/packet-ws.ts. The regression
+// guards implementation invariants, so it reads the canonical -old source.
+const source = readFileSync(resolve("src/network-old/rails/packet-ws.ts"), "utf8");
 
 assert.match(
     source,
