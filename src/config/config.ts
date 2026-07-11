@@ -48,6 +48,8 @@ import {
     resolveFleetDeskProbeWireNodeId,
     shouldPreferWanGatewayForAirpad,
     stringifyCwspRemoteConnectionV1,
+    toShortFleetWireNodeId,
+    fleetWireNodeIdsEquivalent,
     wireNodeIdToBareConnectHost,
     wireNodeIdToLanHost,
     type CwspRemoteConnectionV1
@@ -725,27 +727,77 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     }
 }
 
+function getClipboardBroadcastTargetEntries(): WireTargetEntry[] {
+    const fromExplicit = parseWireTargetList(shellClipboardBroadcastTargets);
+    if (fromExplicit.length) return fromExplicit;
+    const route = getRemoteRouteTarget().trim();
+    if (route) return parseWireTargetList(route);
+    // WHY: desktop Neutralino/WebNative must fan-out clipboard even when the Network
+    // view has no explicit route target yet (empty destinations = coordinator broadcast).
+    if (isDesktopCwspShell()) return parseWireTargetList("*");
+    return [];
+}
+
+/** True for Neutralino / WebNative desktop shells (not Capacitor/PWA-only). */
+export function isDesktopCwspShell(): boolean {
+    try {
+        const g = globalThis as unknown as {
+            __CWS_NEUTRALINO_BOOT__?: boolean;
+            __CWS_WEBNATIVE_BOOT__?: boolean;
+            __NEUTRALINO_AUTH__?: unknown;
+            NL_OS?: string;
+            Neutralino?: unknown;
+        };
+        if (g.__CWS_NEUTRALINO_BOOT__ || g.__CWS_WEBNATIVE_BOOT__) return true;
+        if (g.__NEUTRALINO_AUTH__ || g.Neutralino || typeof g.NL_OS === "string") return true;
+    } catch {
+        /* ignore */
+    }
+    return false;
+}
+
+/**
+ * Neutralino Win/Linux: Node clipboard-hub owns LAN sync.
+ * INVARIANT: WebView must not push/apply remote clipboard when this is true.
+ */
+export function isNeutralinoNodeClipboardHubOwned(): boolean {
+    try {
+        const g = globalThis as unknown as {
+            __CWS_NODE_CLIPBOARD_HUB__?: boolean;
+            __CWS_NEUTRALINO_BOOT__?: boolean;
+            NL_OS?: string;
+            Neutralino?: unknown;
+        };
+        if (g.__CWS_NODE_CLIPBOARD_HUB__ === true) return true;
+        // Neutralino shell defaults to Node-owned clipboard even before auth inject.
+        if (g.__CWS_NEUTRALINO_BOOT__ || g.Neutralino || typeof g.NL_OS === "string") return true;
+    } catch {
+        /* ignore */
+    }
+    return false;
+}
+
 export function isShellRemoteClipboardBridgeEnabled(): boolean {
     return shellRemoteClipboardEnabled !== false;
 }
 
 export function isApplyRemoteClipboardToDeviceEnabled(): boolean {
+    // WHY: Neutralino applies OS clipboard in Node clipboard-hub / ProtocolServer.
+    if (isNeutralinoNodeClipboardHubOwned()) return false;
     return shellApplyRemoteToDevice !== false;
 }
 
 export function isPushLocalClipboardToLanEnabled(): boolean {
-    return shellPushLocalClipboard === true;
+    // WHY: Neutralino polls + pushes from Node, not from WebView websocket.ts.
+    if (isNeutralinoNodeClipboardHubOwned()) return false;
+    if (shellPushLocalClipboard === true) return true;
+    // WebNative (non-Neutralino) desktop still auto-pushes when bridge is on.
+    if (isDesktopCwspShell() && isShellRemoteClipboardBridgeEnabled()) return true;
+    return false;
 }
 
 export function getClipboardPushIntervalMs(): number {
     return shellClipboardPushIntervalMs;
-}
-
-function getClipboardBroadcastTargetEntries(): WireTargetEntry[] {
-    const fromExplicit = parseWireTargetList(shellClipboardBroadcastTargets);
-    if (fromExplicit.length) return fromExplicit;
-    const route = getRemoteRouteTarget().trim();
-    return route ? parseWireTargetList(route) : [];
 }
 
 /** Device ids for outbound clipboard acts (`ID` or `ID::token`, comma/semicolon). */
@@ -773,21 +825,29 @@ export function shouldBypassClipboardInboundAllowlistWithAccessToken(): boolean 
     return shellAccessTokenBypassesClipboardAllowlist && Boolean(getAccessToken().trim());
 }
 
-/** COMPAT: endpoint ids may arrive as `L-192.168.0.110` or bare `192.168.0.110`. */
+/** COMPAT: `L-110` ≡ `L-192.168.0.110` (prefer short fleet form for allowlist compare). */
 export function normalizeClipboardPeerId(value: string): string {
-    const raw = value.trim().toLowerCase();
+    const raw = value.trim();
     if (!raw) return "";
-    if (raw.startsWith("l-")) return raw;
-    if (/^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(raw)) return `l-${raw}`;
-    return raw;
+    const short = toShortFleetWireNodeId(raw);
+    if (short) return short.toLowerCase();
+    const normalized = normalizeWireNodeIdForWire(raw);
+    if (normalized) return normalized.toLowerCase();
+    if (/^\d{1,3}(?:\.\d{1,3}){3}(?::\d+)?$/.test(raw)) return `l-${raw}`.toLowerCase();
+    return raw.toLowerCase();
 }
 
 /**
- * Capacitor Android: keep `/ws` up for inbound desktop clipboard even when AirPad view is closed.
- * Does not replace {@link isMaintainHubSocketConnectionEnabled} (full background hub lifecycle).
+ * Keep `/ws` up for inbound/outbound clipboard outside the AirPad/Network view.
+ * Capacitor Android only — Neutralino clipboard hub lives in Node.
  */
 export function isClipboardHubBootstrapEnabled(): boolean {
+    if (isNeutralinoNodeClipboardHubOwned()) return false;
     try {
+        if (isDesktopCwspShell()) {
+            // Non-Neutralino desktop (e.g. plain WebNative) may still bootstrap.
+            return isShellRemoteClipboardBridgeEnabled() && isApplyRemoteClipboardToDeviceEnabled();
+        }
         const c = (globalThis as { Capacitor?: { isNativePlatform?: () => boolean } }).Capacitor;
         const native = typeof c?.isNativePlatform === "function" && Boolean(c.isNativePlatform());
         if (!native) return false;
@@ -806,9 +866,9 @@ export function isClipboardSenderAllowedForInbound(senderId: string): boolean {
     if (shouldBypassClipboardInboundAllowlistWithAccessToken()) return true;
     const allow = parseWireTargetList(shellClipboardInboundAllowIds);
     if (!allow.length) return true;
-    const s = normalizeClipboardPeerId(senderId);
+    const s = String(senderId || "").trim();
     if (!s) return false;
-    return allow.some((e) => normalizeClipboardPeerId(e.nodeId) === s);
+    return allow.some((e) => fleetWireNodeIdsEquivalent(e.nodeId, s) || normalizeClipboardPeerId(e.nodeId) === normalizeClipboardPeerId(s));
 }
 
 /**
@@ -1113,8 +1173,11 @@ export function getAccessToken(): string {
     const local = (remoteConfig.accessToken || "").trim();
     if (local) return local;
     if (coreSocketAccessToken.trim()) return coreSocketAccessToken.trim();
+    // WHY: ecosystem token is mirrored into coreIdentityBridgeUserKey by applyAirpadRuntime.
+    if (coreIdentityBridgeUserKey.trim()) return coreIdentityBridgeUserKey.trim();
     return readGlobalAirpadValue([
         "CWS_ACCESS_TOKEN",
+        "CWS_ASSOCIATED_TOKEN",
         "ACCESS_TOKEN",
         "AIRPAD_AUTH_TOKEN",
         "AIRPAD_TOKEN",
