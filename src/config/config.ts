@@ -757,7 +757,7 @@ export function isDesktopCwspShell(): boolean {
 }
 
 /**
- * Neutralino Win/Linux: Node clipboard-hub owns LAN sync.
+ * Neutralino / WebNative Win/Linux: Node clipboard-hub owns LAN sync.
  * INVARIANT: WebView must not push/apply remote clipboard when this is true.
  */
 export function isNeutralinoNodeClipboardHubOwned(): boolean {
@@ -765,12 +765,20 @@ export function isNeutralinoNodeClipboardHubOwned(): boolean {
         const g = globalThis as unknown as {
             __CWS_NODE_CLIPBOARD_HUB__?: boolean;
             __CWS_NEUTRALINO_BOOT__?: boolean;
+            __CWS_WEBNATIVE_BOOT__?: boolean;
             NL_OS?: string;
             Neutralino?: unknown;
         };
         if (g.__CWS_NODE_CLIPBOARD_HUB__ === true) return true;
-        // Neutralino shell defaults to Node-owned clipboard even before auth inject.
-        if (g.__CWS_NEUTRALINO_BOOT__ || g.Neutralino || typeof g.NL_OS === "string") return true;
+        // Neutralino/WebNative shell defaults to Node-owned clipboard even before auth inject.
+        if (
+            g.__CWS_NEUTRALINO_BOOT__ ||
+            g.__CWS_WEBNATIVE_BOOT__ ||
+            g.Neutralino ||
+            typeof g.NL_OS === "string"
+        ) {
+            return true;
+        }
     } catch {
         /* ignore */
     }
@@ -788,11 +796,9 @@ export function isApplyRemoteClipboardToDeviceEnabled(): boolean {
 }
 
 export function isPushLocalClipboardToLanEnabled(): boolean {
-    // WHY: Neutralino polls + pushes from Node, not from WebView websocket.ts.
+    // WHY: Neutralino/WebNative polls + pushes from Node hub, not from WebView websocket.ts.
     if (isNeutralinoNodeClipboardHubOwned()) return false;
     if (shellPushLocalClipboard === true) return true;
-    // WebNative (non-Neutralino) desktop still auto-pushes when bridge is on.
-    if (isDesktopCwspShell() && isShellRemoteClipboardBridgeEnabled()) return true;
     return false;
 }
 
