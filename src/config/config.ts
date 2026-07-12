@@ -341,7 +341,7 @@ let shellClipboardPushIntervalMs = 2000;
 let shellClipboardBroadcastTargets = "";
 let shellMaintainHubSocket = false;
 let shellPreferNativeWebsocket = true;
-let shellNativeSmsEnabled = true;
+let shellNativeSmsEnabled = false;
 let shellNativeContactsEnabled = true;
 let shellAcceptInboundClipboardData = true;
 let shellClipboardInboundAllowIds = "";
@@ -676,7 +676,7 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     /** Default off; enable in Settings when background clipboard/hub sync is needed. */
     shellMaintainHubSocket = shell?.maintainHubSocketConnection === true;
     shellPreferNativeWebsocket = (shell?.preferNativeWebsocket ?? interop?.preferNativeWebsocket ?? true) !== false;
-    shellNativeSmsEnabled = (shell?.enableNativeSms ?? true) !== false;
+    shellNativeSmsEnabled = (shell?.enableNativeSms ?? false) === true;
     shellNativeContactsEnabled = (shell?.enableNativeContacts ?? true) !== false;
     shellAcceptInboundClipboardData = (shell?.acceptInboundClipboardData ?? true) !== false;
     shellClipboardInboundAllowIds = (shell?.clipboardInboundAllowIds || "").trim();
