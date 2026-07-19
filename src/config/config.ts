@@ -795,6 +795,8 @@ export function isNeutralinoNodeClipboardHubOwned(): boolean {
             NL_OS?: string;
             Neutralino?: unknown;
         };
+        // WHY: /cwsp → Capacitor Control API sets BOOT flags but explicitly disables Node hub.
+        if (g.__CWS_NODE_CLIPBOARD_HUB__ === false) return false;
         if (g.__CWS_NODE_CLIPBOARD_HUB__ === true) return true;
         // Neutralino/WebNative shell defaults to Node-owned clipboard even before auth inject.
         if (
