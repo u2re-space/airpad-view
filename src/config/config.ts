@@ -1,9 +1,16 @@
+/*
+ * Filename: config.ts
+ * FullPath: modules/views/airpad-view/src/config/config.ts
+ * Change date and time: 14.55.00_19.07.2026
+ * Reason for changes: No dynamic import() on module-load path (illegal in MV3 ServiceWorker).
+ */
 // =========================
 // Конфигурация
 // =========================
 //
 // @see cwsp-shared/airpad-cwsp-client-parity — AirPad localStorage vs CWSAndroid ApplicationSettings (`cwsp.*`).
 // @see runtime/cwsp/endpoint/SPECIFICATION-v2.md — coordinator wire (docs only; not a code dependency).
+
 
 import type { AppSettings } from "com/config/SettingsTypes";
 import {
@@ -16,12 +23,18 @@ import {
     resolveWireConnectionType,
 } from "cwsp-shared/cws-client-wire-defaults";
 import {
+    hasExplicitConnectOrigin,
     looksLikeConnectHost,
     migrateLegacyCwspPublicPort,
     normalizeConnectHostInput,
     resolveConnectHostToOrigin,
     splitConnectHostList
 } from "cwsp-shared/cwsp-endpoint-resolve";
+import { withTimeout } from "fest/core";
+import {
+    isCapacitorCwsNativeShell,
+    patchNativeUnifiedSettingsDetailed
+} from "com/routing/native/cws-bridge";
 import {
     AIRPAD_REMOTE_CONFIG_STORAGE_KEY,
     CWSP_REMOTE_CONNECTION_JSON_VERSION,
@@ -127,8 +140,21 @@ const joinUniqueUrls = (...values: Array<string | undefined>): string => {
  */
 const isBrowserPublicOrigin = (): boolean => {
     if (typeof globalThis.location === "undefined") return false;
+    const proto = String(globalThis.location.protocol || "").toLowerCase();
+    // WHY: MV3 SW/options use chrome-extension://<id>/ — hostname is the extension id, not a
+    // network host. Treating it as "public" rewrote https://127.0.0.1:8434 → wss://<ext-id>:8445
+    // (ERR_NAME_NOT_RESOLVED). Same for Firefox/Safari extension schemes.
+    if (
+        proto === "chrome-extension:" ||
+        proto === "moz-extension:" ||
+        proto === "safari-web-extension:"
+    ) {
+        return false;
+    }
     const h = String(globalThis.location.hostname || "").toLowerCase();
     if (!h || h === "localhost" || h === "127.0.0.1" || h === "[::1]") return false;
+    // Chrome extension ids are 32 chars in a-p; never dialable DNS/IP.
+    if (/^[a-p]{32}$/.test(h)) return false;
     return true;
 };
 
@@ -462,7 +488,7 @@ if (remoteConfig.clientId || remoteConfig.destinationId) {
 /** Re-probe stored origins with explicit ports only (boot must not block on a full port sweep). */
 const rediscoverStoredRemoteUrls = async (): Promise<void> => {
     if (shouldPreferWanGatewayForAirpad(remoteConfig.endpointUrl)) return;
-    const { hasExplicitConnectOrigin } = await import("cwsp-shared/cwsp-endpoint-resolve");
+    // WHY: static `hasExplicitConnectOrigin` only — module-load path must not call `import()` (illegal in MV3 SW).
     const input: AirpadRemoteConfigInput = {};
     const probeOpts = { timeoutMs: 1500, maxProbeCandidates: 2 };
     if (remoteConfig.directUrl.trim() && hasExplicitConnectOrigin(remoteConfig.directUrl.trim())) {
@@ -1029,10 +1055,7 @@ export async function setAirPadQuickConnectTarget(
 export async function syncAirpadRemoteConfigToNativeShell(): Promise<{ ok: boolean; error?: string }> {
     const NATIVE_SYNC_TIMEOUT_MS = 6000;
     try {
-        const { withTimeout } = await import("fest/core");
-        const { isCapacitorCwsNativeShell, patchNativeUnifiedSettingsDetailed } = await import(
-            "com/routing/native/cws-bridge"
-        );
+        // WHY: static imports — CRX SW / shared Settings save must not call `import()`.
         if (!isCapacitorCwsNativeShell()) return { ok: true };
         const nativeExtras = appSettingsShellToNativeExtras({
             endpointUrl: remoteConfig.endpointUrl,
