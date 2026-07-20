@@ -636,7 +636,23 @@ export function syncAirpadRemoteConfigFromAppSettings(
 ): void {
     const blob = appSettingsToRemoteConnectionV1(settings as unknown as Record<string, unknown>);
     const input: AirpadRemoteConfigInput = {};
-    if (blob.endpointUrl) input.endpointUrl = blob.endpointUrl;
+    const isCrxRuntime = (() => {
+        try {
+            const id = (globalThis as { chrome?: { runtime?: { id?: string } } }).chrome?.runtime
+                ?.id;
+            return typeof id === "string" && id.length > 0;
+        } catch {
+            return false;
+        }
+    })();
+    // INVARIANT: CRX wire host = shell.localHubUrl; never project CWSP Relay into AirPad connect.
+    if (isCrxRuntime) {
+        const local =
+            String(settings.shell?.localHubUrl || "").trim() || "https://127.0.0.1:8434/";
+        input.endpointUrl = local;
+    } else if (blob.endpointUrl) {
+        input.endpointUrl = blob.endpointUrl;
+    }
     if (blob.directUrl) input.directUrl = blob.directUrl;
     if (blob.quickConnectValue) input.quickConnectValue = blob.quickConnectValue;
     if (blob.destinationId || blob.routeTarget) {
@@ -730,8 +746,22 @@ export function applyAirpadRuntimeFromAppSettings(settings: AppSettings): void {
     coreSocketProtocolLanesJson = (socket?.protocolLanesJson || "").trim();
 
     const input: AirpadRemoteConfigInput = {};
-    if (core?.endpointUrl?.trim()) {
-        const origin = endpointUrlToAirpadConnectHost(rewriteEndpointToMatchHttpsTab(core.endpointUrl.trim()));
+    // WHY: CRX Extension Local hub (shell.localHubUrl) drives the Chrome wire socket.
+    // CWSP Relay (core.endpointUrl) is Neutralino/gateway SoT and must not overwrite it.
+    const isCrxRuntime = (() => {
+        try {
+            const id = (globalThis as { chrome?: { runtime?: { id?: string } } }).chrome?.runtime
+                ?.id;
+            return typeof id === "string" && id.length > 0;
+        } catch {
+            return false;
+        }
+    })();
+    const wireUrl = isCrxRuntime
+        ? String(shell?.localHubUrl || "").trim() || "https://127.0.0.1:8434/"
+        : String(core?.endpointUrl || "").trim();
+    if (wireUrl) {
+        const origin = endpointUrlToAirpadConnectHost(rewriteEndpointToMatchHttpsTab(wireUrl));
         if (origin) input.endpointUrl = origin;
     }
     if (Object.keys(input).length) {
