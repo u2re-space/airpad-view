@@ -135,6 +135,47 @@ const joinUniqueUrls = (...values: Array<string | undefined>): string => {
 
 /** If AirPad storage says `https://<this-host>:8434` but the app tab is `https://<this-host>/` (443), use tab origin. */
 
+/** Control SPA / markdown hosts — never a CWSP hub `/ws` target. */
+const CONTROL_SPA_PAGE_HOSTS = new Set([
+    "cwsp.u2re.space",
+    "www.cwsp.u2re.space",
+    "md.u2re.space",
+    "www.md.u2re.space"
+]);
+
+const isControlSpaHostName = (host: string): boolean =>
+    CONTROL_SPA_PAGE_HOSTS.has(String(host || "").trim().toLowerCase());
+
+const isControlSpaPage = (): boolean => {
+    try {
+        if (
+            String(document.documentElement?.dataset?.cwspSurface || "")
+                .toLowerCase()
+                .trim() === "cwsp-control"
+        ) {
+            return true;
+        }
+    } catch {
+        /* ignore */
+    }
+    try {
+        return isControlSpaHostName(String(globalThis.location?.hostname || ""));
+    } catch {
+        return false;
+    }
+};
+
+const urlIsControlSpaOrigin = (urlStr: string): boolean => {
+    const trimmed = toTrimmedString(urlStr);
+    if (!trimmed) return false;
+    try {
+        const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+        return isControlSpaHostName(new URL(raw).hostname);
+    } catch {
+        return /cwsp\.u2re\.space|md\.u2re\.space/i.test(trimmed);
+    }
+};
+
 /**
  * Detect public (non-loopback) tab origins so we can ignore dev-only loopback remote URLs in stored settings.
  */
@@ -175,16 +216,31 @@ const urlHostIsLoopback = (urlStr: string): boolean => {
  * When the tab is on a real deployed host but every configured remote URL is loopback-only,
  * use {@link globalThis.location.origin} at read-time instead so websocket probes reach this deployment.
  * Does not rewrite IndexedDB / AirPad localStorage.
+ *
+ * INVARIANT: Control SPA (`cwsp.u2re.space`) is not a hub — never rewrite to page origin
+ * (that produced `wss://cwsp.u2re.space/ws`). Prefer real URLs or WAN gateway fallback.
  */
 const sanitizeLoopbackRemoteOnPublicOrigin = (value: string): string => {
     const trimmed = value.trim();
     if (!trimmed || !isBrowserPublicOrigin()) return trimmed;
     const parts = splitConnectHostList(trimmed);
     if (!parts.length) return trimmed;
-    const allLoopback = parts.every(urlHostIsLoopback);
-    if (!allLoopback) return trimmed;
+
+    // Strip Control-SPA poisons; keep real relay / desk / gateway URLs.
+    const usable = parts.filter((p) => !urlIsControlSpaOrigin(p) && !urlHostIsLoopback(p));
+    if (usable.length) return usable.join(", ");
+
+    const onlyLoopbackOrSpa = parts.every((p) => urlHostIsLoopback(p) || urlIsControlSpaOrigin(p));
+    if (!onlyLoopbackOrSpa) return trimmed;
+
+    // WHY: public Control SPA + loopback Relay → fleet WAN gateway, not the SPA host.
+    if (isControlSpaPage()) {
+        return resolveWanGatewayConnectOrigin("");
+    }
     try {
-        return normalizeOriginUrl(globalThis.location.origin);
+        const origin = normalizeOriginUrl(globalThis.location.origin);
+        if (urlIsControlSpaOrigin(origin)) return resolveWanGatewayConnectOrigin("");
+        return origin;
     } catch {
         return trimmed;
     }
@@ -193,10 +249,13 @@ const sanitizeLoopbackRemoteOnPublicOrigin = (value: string): string => {
 const rewriteEndpointToMatchHttpsTab = (originLike: string): string => {
     const trimmed = toTrimmedString(originLike);
     if (!trimmed || typeof globalThis.location === "undefined" || !globalThis.location.hostname) return trimmed;
+    // WHY: never collapse https://cwsp.u2re.space:8434 → https://cwsp.u2re.space (not a hub).
+    if (urlIsControlSpaOrigin(trimmed) || isControlSpaPage()) return trimmed;
     try {
         const raw = /^[a-z][a-z0-9+.-]*:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
         const u = new URL(raw.endsWith("/") ? raw : `${raw.replace(/\/+$/, "")}/`);
         const tab = globalThis.location;
+        if (isControlSpaHostName(u.hostname) || isControlSpaHostName(tab.hostname)) return trimmed;
         if (
             u.hostname === tab.hostname &&
             u.protocol === "https:" &&
@@ -582,9 +641,12 @@ export type AirpadRemoteConfigInput = {
 
 export function applyAirpadRemoteConfig(input: AirpadRemoteConfigInput, options?: { persist?: boolean }): void {
     if (input.endpointUrl !== undefined) {
-        remoteConfig.endpointUrl = normalizeOriginUrl(input.endpointUrl);
+        const next = normalizeOriginUrl(input.endpointUrl);
+        // WHY: never persist Control SPA page-host as AirPad Relay /ws target.
+        remoteConfig.endpointUrl = urlIsControlSpaOrigin(next) ? "" : next;
     } else if (input.host !== undefined) {
-        remoteConfig.endpointUrl = normalizeOriginUrl(input.host);
+        const next = normalizeOriginUrl(input.host);
+        remoteConfig.endpointUrl = urlIsControlSpaOrigin(next) ? "" : next;
     }
     if (input.directUrl !== undefined) {
         remoteConfig.directUrl = normalizeOriginUrl(input.directUrl);
@@ -650,7 +712,7 @@ export function syncAirpadRemoteConfigFromAppSettings(
         const local =
             String(settings.shell?.localHubUrl || "").trim() || "https://127.0.0.1:8434/";
         input.endpointUrl = local;
-    } else if (blob.endpointUrl) {
+    } else if (blob.endpointUrl && !urlIsControlSpaOrigin(blob.endpointUrl)) {
         input.endpointUrl = blob.endpointUrl;
     }
     if (blob.directUrl) input.directUrl = blob.directUrl;
@@ -825,6 +887,20 @@ export function isNeutralinoNodeClipboardHubOwned(): boolean {
             NL_OS?: string;
             Neutralino?: unknown;
         };
+        // WHY: public https Control SPA must never poll desk Node clipboard-hub (401 flood).
+        // Real Neutralino WebView has NL_OS / Neutralino globals.
+        try {
+            const host = String(location.hostname || "");
+            const publicHttps =
+                location.protocol === "https:" &&
+                host !== "localhost" &&
+                host !== "127.0.0.1";
+            if (publicHttps && !g.Neutralino && typeof g.NL_OS !== "string") {
+                return false;
+            }
+        } catch {
+            /* ignore */
+        }
         // WHY: /cwsp → Capacitor Control API sets BOOT flags but explicitly disables Node hub.
         if (g.__CWS_NODE_CLIPBOARD_HUB__ === false) return false;
         if (g.__CWS_NODE_CLIPBOARD_HUB__ === true) return true;
@@ -989,6 +1065,16 @@ export function getRemoteHost(): string {
     const routeTarget = getRemoteRouteTarget().trim();
     if (shouldPreferWanGatewayForAirpad(endpoint)) {
         return resolveWanGatewayConnectOrigin(endpoint);
+    }
+    // INVARIANT: never dial Control SPA page as /ws host.
+    if (!sanitized || urlIsControlSpaOrigin(sanitized)) {
+        if (endpoint && !urlIsControlSpaOrigin(endpoint) && !urlHostIsLoopback(endpoint)) {
+            return endpoint;
+        }
+        if (isControlSpaPage() || isBrowserPublicOrigin()) {
+            return resolveWanGatewayConnectOrigin(endpoint);
+        }
+        return "";
     }
     return sanitized;
 }
