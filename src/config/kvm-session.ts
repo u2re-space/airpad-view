@@ -44,8 +44,8 @@ export async function refreshAirpadKvmSession(
         state.layout = res.layout;
         const screen = findKvmScreen(state.layout, dest) ?? state.layout.screens[0];
         state.activePeerId = screen.peerId;
-        state.virtualX = Math.floor(screen.width / 2);
-        state.virtualY = Math.floor(screen.height / 2);
+        state.virtualX = Math.floor(Math.min(screen?.width, globalThis?.screen?.availWidth || screen?.width) / 2);
+        state.virtualY = Math.floor(Math.min(screen?.height, globalThis?.screen?.availHeight || screen?.height) / 2);
     } catch {
         resetAirpadKvmSession();
     }
@@ -59,8 +59,8 @@ export const trackAirpadMotionDelta = (dx: number, dy: number, destinationId: st
     const screen = findKvmScreen(state.layout, dest);
     if (!screen) return;
 
-    state.virtualX = Math.max(0, Math.min(screen.width - 1, state.virtualX + dx));
-    state.virtualY = Math.max(0, Math.min(screen.height - 1, state.virtualY + dy));
+    state.virtualX = Math.max(0, Math.min(Math.min(screen.width, globalThis?.screen?.availWidth || screen?.width) - 1, state.virtualX + dx));
+    state.virtualY = Math.max(0, Math.min(Math.min(screen.height, globalThis?.screen?.availHeight || screen?.height) - 1, state.virtualY + dy));
     state.activePeerId = screen.peerId;
 };
 
